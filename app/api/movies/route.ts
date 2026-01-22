@@ -41,7 +41,7 @@ export async function GET() {
 
     const url = new URL(`${TMDB_BASE_URL}/movie/popular`);
     url.searchParams.set("api_key", apiKey);
-    url.searchParams.set("language", "en-US");
+    url.searchParams.set("language", "ja-JP");
     url.searchParams.set("page", String(randomPage));
 
     const res = await fetch(url.toString(), {
