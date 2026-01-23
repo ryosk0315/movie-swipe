@@ -118,7 +118,29 @@ export async function GET(request: Request) {
 
     // 取得したページ内からランダムに1件ピックアップ
     const randomIndex = Math.floor(Math.random() * data.results.length);
-    const movie = data.results[randomIndex];
+    let movie = data.results[randomIndex];
+
+    // 日本語のあらすじが空の場合、英語版を取得
+    if (!movie.overview || movie.overview.trim() === "") {
+      try {
+        const detailUrl = new URL(`${TMDB_BASE_URL}/movie/${movie.id}`);
+        detailUrl.searchParams.set("api_key", apiKey);
+        detailUrl.searchParams.set("language", "en-US");
+
+        const detailRes = await fetch(detailUrl.toString(), {
+          cache: "no-store",
+        });
+
+        if (detailRes.ok) {
+          const detailData = (await detailRes.json()) as TMDbMovie;
+          // 英語のあらすじを使用
+          movie = { ...movie, overview: detailData.overview };
+        }
+      } catch (error) {
+        console.error("[TMDb] Failed to fetch English overview:", error);
+        // エラーが出ても続行（日本語の空のあらすじのまま）
+      }
+    }
 
     // クライアントに返すための整形
     const normalizedMovie = {
@@ -127,7 +149,7 @@ export async function GET(request: Request) {
       title: movie.title || movie.name || movie.original_title || "Untitled",
       rating: movie.vote_average,
       poster_path: movie.poster_path,
-      overview: movie.overview,
+      overview: movie.overview || "あらすじ情報はありません。",
       runtime: movie.runtime,
     };
 

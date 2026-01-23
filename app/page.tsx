@@ -25,8 +25,15 @@ type SelectedMovie = Movie & {
   watched?: boolean; // 実際に見たかどうか
 };
 
+// 「見たい山」の映画型
+type CandidateMovie = Movie & {
+  addedAt: number; // タイムスタンプ
+};
+
 // スワイプ判定に使うしきい値（px）
 const SWIPE_THRESHOLD = 100;
+// 選択タイムに移行するスワイプ数
+const MAX_SWIPES = 20;
 
 export default function Home() {
   // 現在表示している映画
@@ -45,6 +52,16 @@ export default function Home() {
 
   // フィルターモーダルの表示状態
   const [showFilterModal, setShowFilterModal] = useState<boolean>(false);
+
+  // スワイプカウントと「見たい山」の管理
+  const [swipeCount, setSwipeCount] = useState<number>(0);
+  const [candidates, setCandidates] = useState<CandidateMovie[]>([]);
+
+  // 映画詳細モーダルの状態
+  const [showDetailsModal, setShowDetailsModal] = useState<boolean>(false);
+  const [movieDetails, setMovieDetails] = useState<any>(null);
+  const [loadingDetails, setLoadingDetails] = useState<boolean>(false);
+  const [isDragged, setIsDragged] = useState<boolean>(false);
 
   // フィルター条件の状態
   const [filters, setFilters] = useState<FilterOptions>({
@@ -117,6 +134,7 @@ export default function Home() {
     e.preventDefault();
     setIsDragging(true);
     setStartX(e.clientX);
+    setIsDragged(false); // ドラッグフラグをリセット
   };
 
   // ドラッグ中（マウス）
@@ -124,12 +142,23 @@ export default function Home() {
     if (!isDragging || startX === null) return;
     const deltaX = e.clientX - startX;
     setCurrentX(deltaX);
+    
+    // 5px以上移動したらドラッグと判定
+    if (Math.abs(deltaX) > 5) {
+      setIsDragged(true);
+    }
   };
 
   // ドラッグ終了（マウス）
   const handleMouseUp = () => {
     if (!isDragging) return;
-    finishSwipe();
+    
+    // ドラッグされていなければクリックと判定
+    if (!isDragged && movie) {
+      handleCardClick();
+    } else {
+      finishSwipe();
+    }
   };
 
   // 画面外でマウスを離したときのためにleaveも同様に扱う
@@ -184,6 +213,47 @@ export default function Home() {
     [],
   );
 
+  // カードクリック時に詳細情報を取得
+  const handleCardClick = async () => {
+    if (!movie) return;
+    
+    setLoadingDetails(true);
+    setShowDetailsModal(true);
+    
+    try {
+      const res = await fetch(`/api/movies/${movie.id}/details`, {
+        cache: "no-store",
+      });
+      
+      if (res.ok) {
+        const details = await res.json();
+        setMovieDetails(details);
+      } else {
+        setMovieDetails(null);
+      }
+    } catch (error) {
+      console.error("Failed to fetch movie details:", error);
+      setMovieDetails(null);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  // 「見たい山」に映画を追加
+  const addToCandidate = useCallback((movie: Movie) => {
+    const candidate: CandidateMovie = {
+      ...movie,
+      addedAt: Date.now(),
+    };
+    setCandidates((prev) => {
+      // 重複チェック
+      if (prev.some((m) => m.id === movie.id)) {
+        return prev;
+      }
+      return [...prev, candidate];
+    });
+  }, []);
+
   // スワイプの最終判定処理
   const finishSwipe = () => {
     const distance = currentX;
@@ -191,25 +261,52 @@ export default function Home() {
     // 規定値以上スワイプしていたら処理
     if (Math.abs(distance) >= SWIPE_THRESHOLD) {
       if (distance > 0 && movie) {
-        // 右スワイプ = 選ぶ → カードを右に飛ばしてからモーダルを表示
+        // 右スワイプ = 「見たい山」に追加
         setIsDragging(false);
-        // カードを画面外に飛ばすアニメーション
         setCurrentX(window.innerWidth);
+        
+        // 「見たい山」に追加
+        addToCandidate(movie);
+        
         setTimeout(() => {
-          setSelectedMovie(movie);
-          setShowModal(true);
-          // 位置をリセット
-          setStartX(null);
-          setCurrentX(0);
-        }, 250); // アニメーション時間に合わせる
+          // スワイプカウントをインクリメント
+          const newCount = swipeCount + 1;
+          setSwipeCount(newCount);
+          
+          // 20本スワイプしたら選択タイムに移行
+          if (newCount >= MAX_SWIPES) {
+            // localStorageに保存してから遷移
+            localStorage.setItem("candidates", JSON.stringify([...candidates, { ...movie, addedAt: Date.now() }]));
+            window.location.href = "/choose";
+          } else {
+            // 次の映画を取得
+            setStartX(null);
+            setCurrentX(0);
+            fetchMovie();
+          }
+        }, 250);
       } else {
-        // 左スワイプ = スキップ → カードを左に飛ばしてから次の映画へ
+        // 左スワイプ = スキップ
         setIsDragging(false);
-        // カードを画面外に飛ばすアニメーション
         setCurrentX(-window.innerWidth);
+        
         setTimeout(() => {
-          fetchMovie();
-        }, 250); // アニメーション時間に合わせる
+          // スワイプカウントをインクリメント
+          const newCount = swipeCount + 1;
+          setSwipeCount(newCount);
+          
+          // 20本スワイプしたら選択タイムに移行
+          if (newCount >= MAX_SWIPES) {
+            // localStorageに保存してから遷移
+            localStorage.setItem("candidates", JSON.stringify(candidates));
+            window.location.href = "/choose";
+          } else {
+            // 次の映画を取得
+            setStartX(null);
+            setCurrentX(0);
+            fetchMovie();
+          }
+        }, 250);
       }
     } else {
       // スワイプが足りない場合は元に戻す
@@ -324,7 +421,7 @@ export default function Home() {
                 <div className="flex h-full flex-col items-center justify-center gap-4">
                   <div className="h-10 w-10 animate-spin rounded-full border-2 border-zinc-600 border-t-transparent" />
                   <p className="text-sm text-zinc-400">映画を読み込み中…</p>
-                </div>
+        </div>
               )}
 
               {/* エラー表示 */}
@@ -380,15 +477,27 @@ export default function Home() {
                       {movie.overview || "あらすじ情報はありません。"}
                     </p>
 
-                    <div className="mt-auto flex items-center justify-between pt-1 text-xs text-zinc-500">
-                      <span>左：スキップ / 右：選ぶ</span>
-                      <button
-                        type="button"
-                        onClick={fetchMovie}
-                        className="rounded-full border border-zinc-700 px-3 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
-                      >
-                        別の映画を見る
-                      </button>
+                    <div className="mt-auto space-y-2 pt-1">
+                      <div className="flex items-center justify-between text-xs text-zinc-500">
+                        <span>左：スキップ / 右：選ぶ</span>
+                        <button
+                          type="button"
+                          onClick={fetchMovie}
+                          className="rounded-full border border-zinc-700 px-3 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                        >
+                          別の映画を見る
+                        </button>
+                      </div>
+                      <div className="text-center">
+                        <span className="text-xs font-medium text-zinc-400">
+                          {swipeCount}/{MAX_SWIPES}本 スワイプ済み
+                        </span>
+                        {candidates.length > 0 && (
+                          <span className="ml-2 text-xs text-red-400">
+                            （{candidates.length}本を選択中）
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -447,6 +556,121 @@ export default function Home() {
                 後で見る
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 映画詳細モーダル */}
+      {showDetailsModal && movie && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 overflow-y-auto"
+          onClick={() => setShowDetailsModal(false)}
+        >
+          <div
+            className="relative w-full max-w-2xl rounded-2xl bg-zinc-900 p-6 shadow-2xl my-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setShowDetailsModal(false)}
+              className="absolute right-4 top-4 text-zinc-400 transition-colors hover:text-white z-10"
+            >
+              ✕
+            </button>
+
+            {loadingDetails ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="h-10 w-10 animate-spin rounded-full border-2 border-zinc-600 border-t-transparent" />
+              </div>
+            ) : movieDetails ? (
+              <div className="space-y-6">
+                {/* タイトルと基本情報 */}
+                <div>
+                  <h3 className="mb-2 text-2xl font-bold">{movieDetails.title}</h3>
+                  <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-400">
+                    {movieDetails.release_year && (
+                      <span className="flex items-center gap-1">
+                        📅 {movieDetails.release_year}年
+                      </span>
+                    )}
+                    {movieDetails.runtime && (
+                      <span className="flex items-center gap-1">
+                        ⏱️ {movieDetails.runtime}分
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 監督 */}
+                {movieDetails.directors && movieDetails.directors.length > 0 && (
+                  <div>
+                    <h4 className="mb-2 text-sm font-semibold text-zinc-300">監督</h4>
+                    <p className="text-base text-white">
+                      {movieDetails.directors.join(", ")}
+                    </p>
+                  </div>
+                )}
+
+                {/* 出演者 */}
+                {movieDetails.cast && movieDetails.cast.length > 0 && (
+                  <div>
+                    <h4 className="mb-2 text-sm font-semibold text-zinc-300">出演者</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {movieDetails.cast.map((actor: any, index: number) => (
+                        <span
+                          key={index}
+                          className="rounded-full bg-zinc-800 px-3 py-1 text-sm text-white"
+                        >
+                          {actor.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 配信サービス */}
+                {movieDetails.providers && movieDetails.providers.flatrate && movieDetails.providers.flatrate.length > 0 && (
+                  <div>
+                    <h4 className="mb-2 text-sm font-semibold text-zinc-300">
+                      配信サービス
+                    </h4>
+                    <div className="flex flex-wrap gap-3">
+                      {movieDetails.providers.flatrate.map((provider: any) => (
+                        <div
+                          key={provider.provider_id}
+                          className="flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2"
+                        >
+                          {provider.logo_path && (
+                            <img
+                              src={`https://image.tmdb.org/t/p/w92${provider.logo_path}`}
+                              alt={provider.provider_name}
+                              className="h-6 w-6 rounded"
+                            />
+                          )}
+                          <span className="text-sm text-white">
+                            {provider.provider_name}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* あらすじ */}
+                {movieDetails.overview && (
+                  <div>
+                    <h4 className="mb-2 text-sm font-semibold text-zinc-300">あらすじ</h4>
+                    <p className="text-sm leading-relaxed text-zinc-400">
+                      {movieDetails.overview}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="py-12 text-center text-zinc-400">
+                詳細情報の取得に失敗しました。
+              </div>
+            )}
           </div>
         </div>
       )}
