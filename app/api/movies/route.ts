@@ -1,4 +1,4 @@
-// TMDbの人気映画からランダムに1件取得するAPIルート
+// TMDbの映画をフィルター付きでランダムに1件取得するAPIルート
 // 日本語コメント付きで実装
 
 import { NextResponse } from "next/server";
@@ -15,15 +15,25 @@ type TMDbMovie = {
   vote_average: number;
   poster_path: string | null;
   overview: string;
+  runtime?: number;
 };
 
-type TMDbPopularResponse = {
+type TMDbDiscoverResponse = {
   results: TMDbMovie[];
   total_results: number;
   total_pages: number;
 };
 
-export async function GET() {
+/**
+ * GET /api/movies
+ * クエリパラメータ:
+ * - genres: ジャンルID（カンマ区切り、例: 28,12）
+ * - runtime: 上映時間の上限（例: 90, 120）
+ * - year_from: リリース年の開始（例: 2020）
+ * - year_to: リリース年の終了（例: 2024）
+ * - providers: 配信サービスID（カンマ区切り、例: 8,9）
+ */
+export async function GET(request: Request) {
   // 環境変数からAPIキーを取得
   const apiKey = process.env.TMDB_API_KEY;
 
@@ -36,12 +46,45 @@ export async function GET() {
   }
 
   try {
-    // 人気映画のランダムなページを取得（1〜10ページのどれか）
-    const randomPage = Math.floor(Math.random() * 10) + 1;
+    // クエリパラメータを取得
+    const { searchParams } = new URL(request.url);
+    const genres = searchParams.get("genres"); // カンマ区切りのジャンルID
+    const runtime = searchParams.get("runtime"); // 上映時間の上限
+    const yearFrom = searchParams.get("year_from"); // リリース年の開始
+    const yearTo = searchParams.get("year_to"); // リリース年の終了
+    const providers = searchParams.get("providers"); // 配信サービスID
 
-    const url = new URL(`${TMDB_BASE_URL}/movie/popular`);
+    // TMDb discover API のURLを構築
+    const url = new URL(`${TMDB_BASE_URL}/discover/movie`);
     url.searchParams.set("api_key", apiKey);
     url.searchParams.set("language", "ja-JP");
+    url.searchParams.set("sort_by", "popularity.desc"); // 人気順
+    url.searchParams.set("include_adult", "false"); // アダルトコンテンツを除外
+
+    // フィルター条件を追加
+    if (genres) {
+      url.searchParams.set("with_genres", genres);
+    }
+
+    if (runtime) {
+      url.searchParams.set("with_runtime.lte", runtime); // 上映時間の上限
+    }
+
+    if (yearFrom) {
+      url.searchParams.set("primary_release_date.gte", `${yearFrom}-01-01`);
+    }
+
+    if (yearTo) {
+      url.searchParams.set("primary_release_date.lte", `${yearTo}-12-31`);
+    }
+
+    if (providers) {
+      url.searchParams.set("with_watch_providers", providers);
+      url.searchParams.set("watch_region", "JP"); // 日本の配信情報
+    }
+
+    // ランダムなページを取得（1〜5ページのどれか）
+    const randomPage = Math.floor(Math.random() * 5) + 1;
     url.searchParams.set("page", String(randomPage));
 
     const res = await fetch(url.toString(), {
@@ -54,7 +97,7 @@ export async function GET() {
       const text = await res.text().catch(() => "");
       return NextResponse.json(
         {
-          error: "Failed to fetch popular movies from TMDb.",
+          error: "Failed to fetch movies from TMDb.",
           statusText: res.statusText,
           status: res.status,
           body: text || undefined,
@@ -63,12 +106,12 @@ export async function GET() {
       );
     }
 
-    const data = (await res.json()) as TMDbPopularResponse;
+    const data = (await res.json()) as TMDbDiscoverResponse;
 
     if (!data.results || data.results.length === 0) {
       // 結果が空の場合
       return NextResponse.json(
-        { error: "No popular movies found from TMDb." },
+        { error: "No movies found with the specified filters." },
         { status: 404 },
       );
     }
@@ -85,6 +128,7 @@ export async function GET() {
       rating: movie.vote_average,
       poster_path: movie.poster_path,
       overview: movie.overview,
+      runtime: movie.runtime,
     };
 
     return NextResponse.json(normalizedMovie, { status: 200 });

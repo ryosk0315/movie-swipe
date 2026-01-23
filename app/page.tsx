@@ -7,6 +7,7 @@
 // - Netflix風の黒背景デザイン
 
 import { useCallback, useEffect, useState } from "react";
+import FilterModal, { type FilterOptions } from "./components/FilterModal";
 
 // APIから返ってくる映画データの型
 type Movie = {
@@ -42,13 +43,45 @@ export default function Home() {
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [showModal, setShowModal] = useState<boolean>(false);
 
+  // フィルターモーダルの表示状態
+  const [showFilterModal, setShowFilterModal] = useState<boolean>(false);
+
+  // フィルター条件の状態
+  const [filters, setFilters] = useState<FilterOptions>({
+    genres: [],
+    runtime: null,
+    yearFrom: null,
+    yearTo: null,
+    providers: [],
+  });
+
   // スワイプで次の映画を読み込む処理
   const fetchMovie = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const res = await fetch("/api/movies", {
+      // フィルター条件をクエリパラメータに変換
+      const params = new URLSearchParams();
+      if (filters.genres.length > 0) {
+        params.set("genres", filters.genres.join(","));
+      }
+      if (filters.runtime) {
+        params.set("runtime", String(filters.runtime));
+      }
+      if (filters.yearFrom) {
+        params.set("year_from", String(filters.yearFrom));
+      }
+      if (filters.yearTo) {
+        params.set("year_to", String(filters.yearTo));
+      }
+      if (filters.providers.length > 0) {
+        params.set("providers", filters.providers.join(","));
+      }
+
+      const url = `/api/movies${params.toString() ? `?${params.toString()}` : ""}`;
+
+      const res = await fetch(url, {
         method: "GET",
         cache: "no-store",
       });
@@ -72,12 +105,9 @@ export default function Home() {
       setCurrentX(0);
       setIsDragging(false);
     }
-  }, []);
+  }, [filters]);
 
-  // 初回マウント時に映画を取得
-  useEffect(() => {
-    fetchMovie();
-  }, [fetchMovie]);
+  // 初回マウント時と filters 変更時に映画を取得（重複削除のため下に統合）
 
   // カードの回転角（Xの移動量に応じて少し傾ける）
   const rotation = (currentX / 10) * 1.5; // ほどよい傾きに調整
@@ -220,6 +250,18 @@ export default function Home() {
     }
   };
 
+  // フィルター適用時のハンドラー
+  const handleApplyFilters = (newFilters: FilterOptions) => {
+    setFilters(newFilters);
+    // フィルターを適用したら、すぐに新しい映画を取得
+    // fetchMovie は filters の変更で自動的に再実行される
+  };
+
+  // filters が変更されたら映画を再取得
+  useEffect(() => {
+    fetchMovie();
+  }, [filters, fetchMovie]);
+
   return (
     <div className="min-h-screen bg-black text-white">
       {/* 背景のグラデーション & Netflix風のレイアウト */}
@@ -234,12 +276,21 @@ export default function Home() {
               MOVIE SWIPE
             </span>
           </div>
-          <a
-            href="/selected"
-            className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
-          >
-            選んだリスト
-          </a>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowFilterModal(true)}
+              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
+            >
+              🎬 フィルター
+            </button>
+            <a
+              href="/selected"
+              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
+            >
+              選んだリスト
+            </a>
+          </div>
         </header>
 
         {/* 中央のカードエリア */}
@@ -399,6 +450,14 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* フィルターモーダル */}
+      <FilterModal
+        isOpen={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        currentFilters={filters}
+        onApply={handleApplyFilters}
+      />
     </div>
   );
 }
