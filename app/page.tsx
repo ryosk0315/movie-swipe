@@ -73,27 +73,32 @@ export default function Home() {
   });
 
   // スワイプで次の映画を読み込む処理
-  const fetchMovie = useCallback(async () => {
+  const fetchMovie = useCallback(async (retryWithoutFilters = false) => {
     try {
       setLoading(true);
       setError(null);
 
+      // リトライ時はフィルターをリセット
+      const currentFilters = retryWithoutFilters
+        ? { genres: [], runtime: null, yearFrom: null, yearTo: null, providers: [] }
+        : filters;
+
       // フィルター条件をクエリパラメータに変換
       const params = new URLSearchParams();
-      if (filters.genres.length > 0) {
-        params.set("genres", filters.genres.join(","));
+      if (currentFilters.genres.length > 0) {
+        params.set("genres", currentFilters.genres.join(","));
       }
-      if (filters.runtime) {
-        params.set("runtime", String(filters.runtime));
+      if (currentFilters.runtime) {
+        params.set("runtime", String(currentFilters.runtime));
       }
-      if (filters.yearFrom) {
-        params.set("year_from", String(filters.yearFrom));
+      if (currentFilters.yearFrom) {
+        params.set("year_from", String(currentFilters.yearFrom));
       }
-      if (filters.yearTo) {
-        params.set("year_to", String(filters.yearTo));
+      if (currentFilters.yearTo) {
+        params.set("year_to", String(currentFilters.yearTo));
       }
-      if (filters.providers.length > 0) {
-        params.set("providers", filters.providers.join(","));
+      if (currentFilters.providers.length > 0) {
+        params.set("providers", currentFilters.providers.join(","));
       }
 
       const url = `/api/movies${params.toString() ? `?${params.toString()}` : ""}`;
@@ -105,6 +110,26 @@ export default function Home() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => null);
+        
+        // 404エラー（映画が見つからない）の場合
+        if (res.status === 404 && !retryWithoutFilters) {
+          // フィルターをリセットして再試行
+          setFilters({
+            genres: [],
+            runtime: null,
+            yearFrom: null,
+            yearTo: null,
+            providers: [],
+          });
+          setError("条件に合う映画がなくなりました。フィルターをリセットしています...");
+          
+          // 2秒後に再試行
+          setTimeout(() => {
+            fetchMovie(true);
+          }, 2000);
+          return;
+        }
+        
         throw new Error(body?.error || "映画の取得に失敗しました。");
       }
 

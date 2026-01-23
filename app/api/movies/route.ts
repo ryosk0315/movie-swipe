@@ -83,8 +83,8 @@ export async function GET(request: Request) {
       url.searchParams.set("watch_region", "JP"); // 日本の配信情報
     }
 
-    // ランダムなページを取得（1〜5ページのどれか）
-    const randomPage = Math.floor(Math.random() * 5) + 1;
+    // ランダムなページを取得（1〜10ページのどれか）
+    const randomPage = Math.floor(Math.random() * 10) + 1;
     url.searchParams.set("page", String(randomPage));
 
     const res = await fetch(url.toString(), {
