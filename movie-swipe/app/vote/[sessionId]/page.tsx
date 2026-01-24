@@ -5,7 +5,7 @@
 // - 各自が「いいね」を押す
 // - 投票結果を集計して表示
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
@@ -31,51 +31,14 @@ export default function VoteSessionPage() {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [currentMovieIndex, setCurrentMovieIndex] = useState<number>(0);
   const [votes, setVotes] = useState<Vote[]>([]);
-  const [userId] = useState<string>(() => {
-    // ユーザーIDを生成（localStorageから取得 or 新規作成）
-    const stored = localStorage.getItem(`vote_userId_${sessionId}`);
-    if (stored) return stored;
-    const newId = Math.random().toString(36).substring(2, 9);
-    localStorage.setItem(`vote_userId_${sessionId}`, newId);
-    return newId;
-  });
+  const [userId, setUserId] = useState<string>("");
   const [showResults, setShowResults] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
 
-  // セッションの映画リストを取得
-  useEffect(() => {
-    const loadSessionMovies = () => {
-      const stored = localStorage.getItem(`vote_session_${sessionId}`);
-      if (stored) {
-        const data = JSON.parse(stored);
-        setMovies(data.movies || []);
-        setCurrentMovieIndex(data.currentIndex || 0);
-      } else {
-        // セッションが存在しない場合は、新しいセッションを作成
-        fetchInitialMovies();
-      }
-    };
-
-    loadSessionMovies();
-  }, [sessionId]);
-
-  // 投票を読み込む
-  useEffect(() => {
-    const loadVotes = () => {
-      const stored = localStorage.getItem(`vote_votes_${sessionId}`);
-      if (stored) {
-        setVotes(JSON.parse(stored));
-      }
-    };
-
-    loadVotes();
-    // 定期的に投票を更新（他のユーザーの投票を反映）
-    const interval = setInterval(loadVotes, 2000);
-    return () => clearInterval(interval);
-  }, [sessionId]);
-
   // 初期映画を取得
-  const fetchInitialMovies = async () => {
+  const fetchInitialMovies = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    
     setLoading(true);
     try {
       const moviePromises = Array.from({ length: 10 }, () =>
@@ -97,7 +60,57 @@ export default function VoteSessionPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [sessionId]);
+
+  // ユーザーIDを初期化（クライアントサイドでのみ実行）
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem(`vote_userId_${sessionId}`);
+      if (stored) {
+        setUserId(stored);
+      } else {
+        const newId = Math.random().toString(36).substring(2, 9);
+        localStorage.setItem(`vote_userId_${sessionId}`, newId);
+        setUserId(newId);
+      }
+    }
+  }, [sessionId]);
+
+  // セッションの映画リストを取得
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    
+    const loadSessionMovies = () => {
+      const stored = localStorage.getItem(`vote_session_${sessionId}`);
+      if (stored) {
+        const data = JSON.parse(stored);
+        setMovies(data.movies || []);
+        setCurrentMovieIndex(data.currentIndex || 0);
+      } else {
+        // セッションが存在しない場合は、新しいセッションを作成
+        fetchInitialMovies();
+      }
+    };
+
+    loadSessionMovies();
+  }, [sessionId, fetchInitialMovies]);
+
+  // 投票を読み込む
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    
+    const loadVotes = () => {
+      const stored = localStorage.getItem(`vote_votes_${sessionId}`);
+      if (stored) {
+        setVotes(JSON.parse(stored));
+      }
+    };
+
+    loadVotes();
+    // 定期的に投票を更新（他のユーザーの投票を反映）
+    const interval = setInterval(loadVotes, 2000);
+    return () => clearInterval(interval);
+  }, [sessionId]);
 
   // 「いいね」を押す
   const handleVote = (movieId: number) => {
