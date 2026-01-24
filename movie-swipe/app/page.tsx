@@ -366,7 +366,7 @@ export default function Home() {
   }, []);
 
   // 統計データを保存
-  const saveSwipeStat = useCallback((movieId: number, direction: "left" | "right" | "down") => {
+  const saveSwipeStat = useCallback((movieId: number, direction: "left" | "right" | "down" | "up") => {
     const stat: SwipeStat = {
       movieId,
       timestamp: Date.now(),
