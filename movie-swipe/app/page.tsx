@@ -455,7 +455,7 @@ export default function Home() {
                   <p className="text-sm text-red-400">{error}</p>
                   <button
                     type="button"
-                    onClick={fetchMovie}
+                    onClick={() => fetchMovie()}
                     className="rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500"
                   >
                     リトライ
@@ -507,7 +507,7 @@ export default function Home() {
                         <span>左：スキップ / 右：選ぶ</span>
                         <button
                           type="button"
-                          onClick={fetchMovie}
+                          onClick={() => fetchMovie()}
                           className="rounded-full border border-zinc-700 px-3 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
                         >
                           別の映画を見る
