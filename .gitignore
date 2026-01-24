@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# chat logs (GitHubに反映しない)
+chat_logs.md

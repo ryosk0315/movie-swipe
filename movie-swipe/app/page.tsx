@@ -7,7 +7,9 @@
 // - Netflix風の黒背景デザイン
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import FilterModal, { type FilterOptions } from "./components/FilterModal";
+import TimeRecommendationModal from "./components/TimeRecommendationModal";
 
 // APIから返ってくる映画データの型
 type Movie = {
@@ -30,6 +32,18 @@ type CandidateMovie = Movie & {
   addedAt: number; // タイムスタンプ
 };
 
+// 統計データの型
+type SwipeStat = {
+  movieId: number;
+  timestamp: number;
+  direction: "left" | "right" | "down" | "up"; // 左：スキップ、右：選ぶ、下：見たことある、上：お気に入り
+};
+
+// お気に入りの映画型
+type FavoriteMovie = Movie & {
+  addedAt: number; // タイムスタンプ
+};
+
 // スワイプ判定に使うしきい値（px）
 const SWIPE_THRESHOLD = 100;
 // 選択タイムに移行するスワイプ数
@@ -44,14 +58,21 @@ export default function Home() {
   // カードのドラッグ状態
   const [isDragging, setIsDragging] = useState(false);
   const [startX, setStartX] = useState<number | null>(null);
+  const [startY, setStartY] = useState<number | null>(null);
   const [currentX, setCurrentX] = useState<number>(0);
+  const [currentY, setCurrentY] = useState<number>(0);
 
   // 選んだ映画を表示するモーダルの状態
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [showModal, setShowModal] = useState<boolean>(false);
+  const [selectedMovieProviders, setSelectedMovieProviders] = useState<any>(null);
+  const [loadingSelectedProviders, setLoadingSelectedProviders] = useState<boolean>(false);
 
   // フィルターモーダルの表示状態
   const [showFilterModal, setShowFilterModal] = useState<boolean>(false);
+
+  // 時間帯レコメンドモーダルの表示状態
+  const [showTimeRecommendationModal, setShowTimeRecommendationModal] = useState<boolean>(false);
 
   // スワイプカウントと「見たい山」の管理
   const [swipeCount, setSwipeCount] = useState<number>(0);
@@ -73,7 +94,7 @@ export default function Home() {
   });
 
   // スワイプで次の映画を読み込む処理
-  const fetchMovie = useCallback(async (retryWithoutFilters = false) => {
+  const fetchMovie = useCallback(async (retryWithoutFilters = false, retryCount = 0) => {
     try {
       setLoading(true);
       setError(null);
@@ -134,6 +155,28 @@ export default function Home() {
       }
 
       const data = (await res.json()) as Movie;
+      
+      // 表示済み映画のIDを取得
+      const shownMovies = localStorage.getItem("shownMovies");
+      const shownList: number[] = shownMovies ? JSON.parse(shownMovies) : [];
+      
+      // 「見たことある」映画のIDを取得
+      const watchedMovies = localStorage.getItem("watchedMovies");
+      const watchedList: number[] = watchedMovies ? JSON.parse(watchedMovies) : [];
+      
+      // 表示済みまたは「見たことある」映画を除外（最大10回まで再試行）
+      if ((shownList.includes(data.id) || watchedList.includes(data.id)) && retryCount < 10) {
+        // 表示済みまたは「見たことある」映画の場合は再取得
+        return fetchMovie(retryWithoutFilters, retryCount + 1);
+      }
+      
+      // 表示済みリストに追加（最大100件まで保持）
+      const updatedShownList = [...shownList, data.id];
+      if (updatedShownList.length > 100) {
+        updatedShownList.shift(); // 古いものを削除
+      }
+      localStorage.setItem("shownMovies", JSON.stringify(updatedShownList));
+      
       setMovie(data);
     } catch (err: unknown) {
       console.error(err);
@@ -144,7 +187,9 @@ export default function Home() {
       setLoading(false);
       // 次のカードに備えて位置をリセット
       setStartX(null);
+      setStartY(null);
       setCurrentX(0);
+      setCurrentY(0);
       setIsDragging(false);
     }
   }, [filters]);
@@ -159,17 +204,20 @@ export default function Home() {
     e.preventDefault();
     setIsDragging(true);
     setStartX(e.clientX);
+    setStartY(e.clientY);
     setIsDragged(false); // ドラッグフラグをリセット
   };
 
   // ドラッグ中（マウス）
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDragging || startX === null) return;
+    if (!isDragging || startX === null || startY === null) return;
     const deltaX = e.clientX - startX;
+    const deltaY = e.clientY - startY;
     setCurrentX(deltaX);
+    setCurrentY(deltaY);
     
     // 5px以上移動したらドラッグと判定
-    if (Math.abs(deltaX) > 5) {
+    if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
       setIsDragged(true);
     }
   };
@@ -197,14 +245,27 @@ export default function Home() {
     const touch = e.touches[0];
     setIsDragging(true);
     setStartX(touch.clientX);
+    setStartY(touch.clientY);
+    setIsDragged(false); // ドラッグフラグをリセット
+    // 画面のスクロールを防ぐ
+    e.preventDefault();
   };
 
   // タッチ移動
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (!isDragging || startX === null) return;
+    if (!isDragging || startX === null || startY === null) return;
+    // 画面のスクロールを防ぐ
+    e.preventDefault();
     const touch = e.touches[0];
     const deltaX = touch.clientX - startX;
+    const deltaY = touch.clientY - startY;
     setCurrentX(deltaX);
+    setCurrentY(deltaY);
+    
+    // 5px以上移動したらドラッグと判定
+    if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+      setIsDragged(true);
+    }
   };
 
   // タッチ終了
@@ -279,19 +340,120 @@ export default function Home() {
     });
   }, []);
 
+  // 「見たことある」映画をlocalStorageに保存
+  const markAsWatched = useCallback((movie: Movie) => {
+    const existing = localStorage.getItem("watchedMovies");
+    const list: number[] = existing ? JSON.parse(existing) : [];
+    if (!list.includes(movie.id)) {
+      list.push(movie.id);
+      localStorage.setItem("watchedMovies", JSON.stringify(list));
+    }
+  }, []);
+
+  // お気に入りに追加
+  const addToFavorites = useCallback((movie: Movie) => {
+    const favorite: FavoriteMovie = {
+      ...movie,
+      addedAt: Date.now(),
+    };
+    const existing = localStorage.getItem("favoriteMovies");
+    const list: FavoriteMovie[] = existing ? JSON.parse(existing) : [];
+    // 重複チェック
+    if (!list.some((m) => m.id === movie.id)) {
+      list.unshift(favorite); // 最新を先頭に
+      localStorage.setItem("favoriteMovies", JSON.stringify(list));
+    }
+  }, []);
+
+  // 統計データを保存
+  const saveSwipeStat = useCallback((movieId: number, direction: "left" | "right" | "down") => {
+    const stat: SwipeStat = {
+      movieId,
+      timestamp: Date.now(),
+      direction,
+    };
+    const existing = localStorage.getItem("swipeStats");
+    const stats: SwipeStat[] = existing ? JSON.parse(existing) : [];
+    stats.push(stat);
+    // 最大1000件まで保持（古いものから削除）
+    if (stats.length > 1000) {
+      stats.shift();
+    }
+    localStorage.setItem("swipeStats", JSON.stringify(stats));
+  }, []);
+
   // スワイプの最終判定処理
   const finishSwipe = () => {
-    const distance = currentX;
+    const distanceX = currentX;
+    const distanceY = currentY;
+
+    // 縦方向の移動が横方向より大きい場合
+    if (Math.abs(distanceY) > Math.abs(distanceX) && Math.abs(distanceY) >= SWIPE_THRESHOLD && movie) {
+      if (distanceY > 0) {
+        // 下スワイプ = 「見たことある」とマーク
+        setIsDragging(false);
+        setCurrentY(window.innerHeight);
+        markAsWatched(movie);
+        saveSwipeStat(movie.id, "down"); // 統計データを保存
+        
+        setTimeout(() => {
+          // スワイプカウントをインクリメント
+          const newCount = swipeCount + 1;
+          setSwipeCount(newCount);
+          
+          // 20本スワイプしたら選択タイムに移行
+          if (newCount >= MAX_SWIPES) {
+            localStorage.setItem("candidates", JSON.stringify(candidates));
+            window.location.href = "/choose";
+          } else {
+            // 次の映画を取得
+            setStartX(null);
+            setStartY(null);
+            setCurrentX(0);
+            setCurrentY(0);
+            fetchMovie();
+          }
+        }, 100);
+        return;
+      } else {
+        // 上スワイプ = お気に入りに追加
+        setIsDragging(false);
+        setCurrentY(-window.innerHeight);
+        addToFavorites(movie);
+        saveSwipeStat(movie.id, "up"); // 統計データを保存
+        
+        setTimeout(() => {
+          // スワイプカウントをインクリメント
+          const newCount = swipeCount + 1;
+          setSwipeCount(newCount);
+          
+          // 20本スワイプしたら選択タイムに移行
+          if (newCount >= MAX_SWIPES) {
+            localStorage.setItem("candidates", JSON.stringify(candidates));
+            window.location.href = "/choose";
+          } else {
+            // 次の映画を取得
+            setStartX(null);
+            setStartY(null);
+            setCurrentX(0);
+            setCurrentY(0);
+            fetchMovie();
+          }
+        }, 100);
+        return;
+      }
+    }
 
     // 規定値以上スワイプしていたら処理
-    if (Math.abs(distance) >= SWIPE_THRESHOLD) {
-      if (distance > 0 && movie) {
+    if (Math.abs(distanceX) >= SWIPE_THRESHOLD) {
+      if (distanceX > 0 && movie) {
         // 右スワイプ = 「見たい山」に追加
         setIsDragging(false);
         setCurrentX(window.innerWidth);
         
         // 「見たい山」に追加
         addToCandidate(movie);
+        saveSwipeStat(movie.id, "right"); // 統計データを保存
         
         setTimeout(() => {
           // スワイプカウントをインクリメント
@@ -306,14 +468,20 @@ export default function Home() {
           } else {
             // 次の映画を取得
             setStartX(null);
+            setStartY(null);
             setCurrentX(0);
+            setCurrentY(0);
             fetchMovie();
           }
-        }, 250);
+        }, 100); // アニメーション時間を250ms → 100msに短縮
       } else {
         // 左スワイプ = スキップ
         setIsDragging(false);
         setCurrentX(-window.innerWidth);
+        
+        if (movie) {
+          saveSwipeStat(movie.id, "left"); // 統計データを保存
+        }
         
         setTimeout(() => {
           // スワイプカウントをインクリメント
@@ -328,39 +496,74 @@ export default function Home() {
           } else {
             // 次の映画を取得
             setStartX(null);
+            setStartY(null);
             setCurrentX(0);
+            setCurrentY(0);
             fetchMovie();
           }
-        }, 250);
+        }, 100); // アニメーション時間を250ms → 100msに短縮
       }
     } else {
       // スワイプが足りない場合は元に戻す
       setIsDragging(false);
       setStartX(null);
+      setStartY(null);
       setCurrentX(0);
+      setCurrentY(0);
     }
   };
 
   // カードのスタイル（位置と回転をJSから制御）
   const cardStyle: React.CSSProperties = {
-    transform: `translateX(${currentX}px) rotate(${rotation}deg)`,
-    // ドラッグ中は即時反映、ドラッグ終了時はスムーズに戻る
-    transition: isDragging ? "none" : "transform 0.25s ease-out",
-    opacity: isDragging && Math.abs(currentX) >= SWIPE_THRESHOLD ? 0.7 : 1,
+    transform: `translate(${currentX}px, ${currentY}px) rotate(${rotation}deg)`,
+    // ドラッグ中は即時反映、ドラッグ終了時はスムーズに戻る（アニメーション時間を短縮）
+    transition: isDragging ? "none" : "transform 0.1s ease-out",
+    opacity: isDragging && (Math.abs(currentX) >= SWIPE_THRESHOLD || Math.abs(currentY) >= SWIPE_THRESHOLD) ? 0.7 : 1,
   };
 
   // モーダルを閉じて次の映画を取得
   const handleModalClose = () => {
     setShowModal(false);
     setSelectedMovie(null);
+    setSelectedMovieProviders(null);
     fetchMovie();
   };
 
+  // モーダルが開いた時に配信サービス情報を取得
+  useEffect(() => {
+    if (showModal && selectedMovie) {
+      fetchSelectedMovieProviders(selectedMovie.id);
+    }
+  }, [showModal, selectedMovie]);
+
+  // 配信サービス情報を取得
+  const fetchSelectedMovieProviders = async (movieId: number) => {
+    setLoadingSelectedProviders(true);
+    try {
+      const res = await fetch(`/api/movies/${movieId}/providers`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedMovieProviders(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch providers:", error);
+    } finally {
+      setLoadingSelectedProviders(false);
+    }
+  };
+
   // 「今すぐ見る」を選択
-  const handleWatchNow = () => {
+  const handleWatchNow = async () => {
     if (selectedMovie) {
-      saveSelectedMovie(selectedMovie, "watch_now");
-      handleModalClose();
+      // 配信サービス情報を取得
+      await fetchSelectedMovieProviders(selectedMovie.id);
+      // 配信サービスがない場合は、保存してモーダルを閉じる
+      if (!selectedMovieProviders || (!selectedMovieProviders.flatrate || selectedMovieProviders.flatrate.length === 0)) {
+        saveSelectedMovie(selectedMovie, "watch_now");
+        handleModalClose();
+      }
     }
   };
 
@@ -392,13 +595,20 @@ export default function Home() {
       <main className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4 py-10">
         {/* ロゴ風ヘッダー */}
         <header className="absolute left-4 right-4 top-4 z-20 flex items-center justify-between sm:left-10 sm:right-10 sm:top-8">
-          <div className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
             <div className="h-7 w-7 rounded-sm bg-red-600 sm:h-8 sm:w-8" />
             <span className="text-lg font-semibold tracking-[0.25em] text-red-600 sm:text-xl">
               MOVIE SWIPE
             </span>
-          </div>
+          </Link>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowTimeRecommendationModal(true)}
+              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
+            >
+              🎯 時間帯レコメンド
+            </button>
             <button
               type="button"
               onClick={() => setShowFilterModal(true)}
@@ -411,6 +621,24 @@ export default function Home() {
               className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
             >
               選んだリスト
+            </a>
+            <a
+              href="/stats"
+              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
+            >
+              📊 統計
+            </a>
+            <a
+              href="/vote"
+              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
+            >
+              👥 投票モード
+            </a>
+            <a
+              href="/favorites"
+              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
+            >
+              ⭐ お気に入り
             </a>
           </div>
         </header>
@@ -432,7 +660,7 @@ export default function Home() {
             {/* メインカード */}
             <div
               className="relative z-10 h-[400px] cursor-grab select-none rounded-3xl border border-zinc-800 bg-zinc-900/80 shadow-2xl shadow-black/70 transition-shadow hover:shadow-black"
-              style={cardStyle}
+              style={{ ...cardStyle, touchAction: "pan-x" }}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -504,7 +732,7 @@ export default function Home() {
 
                     <div className="mt-auto space-y-2 pt-1">
                       <div className="flex items-center justify-between text-xs text-zinc-500">
-                        <span>左：スキップ / 右：選ぶ</span>
+                        <span>左：スキップ / 右：選ぶ / 上：お気に入り / 下：見たことある</span>
                         <button
                           type="button"
                           onClick={() => fetchMovie()}
@@ -565,14 +793,51 @@ export default function Home() {
               </p>
             </div>
 
+            {/* 配信サービスリンク */}
+            {loadingSelectedProviders ? (
+              <div className="mb-4 flex items-center justify-center py-4">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-600 border-t-transparent" />
+              </div>
+            ) : selectedMovieProviders && selectedMovieProviders.flatrate && selectedMovieProviders.flatrate.length > 0 ? (
+              <div className="mb-4 space-y-2">
+                <p className="text-sm font-semibold text-zinc-300">配信サービス</p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedMovieProviders.flatrate.map((provider: any) => (
+                    <a
+                      key={provider.provider_id}
+                      href={selectedMovieProviders.link || "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+                      onClick={() => {
+                        saveSelectedMovie(selectedMovie, "watch_now");
+                        handleModalClose();
+                      }}
+                      className="flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 text-sm text-white transition-colors hover:bg-zinc-700"
+                    >
+                      {provider.logo_path && (
+                        <img
+                          src={`https://image.tmdb.org/t/p/w92${provider.logo_path}`}
+                          alt={provider.provider_name}
+                          className="h-6 w-6 rounded"
+                        />
+                      )}
+                      <span>{provider.provider_name}で見る</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="flex flex-col gap-3">
-              <button
-                type="button"
-                onClick={handleWatchNow}
-                className="rounded-lg bg-red-600 px-6 py-3 text-base font-medium text-white transition-colors hover:bg-red-500"
-              >
-                今すぐ見る
-              </button>
+              {(!selectedMovieProviders || !selectedMovieProviders.flatrate || selectedMovieProviders.flatrate.length === 0) && (
+                <button
+                  type="button"
+                  onClick={handleWatchNow}
+                  className="rounded-lg bg-red-600 px-6 py-3 text-base font-medium text-white transition-colors hover:bg-red-500"
+                >
+                  今すぐ見る
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleWatchLater}
@@ -705,6 +970,13 @@ export default function Home() {
         isOpen={showFilterModal}
         onClose={() => setShowFilterModal(false)}
         currentFilters={filters}
+        onApply={handleApplyFilters}
+      />
+
+      {/* 時間帯レコメンドモーダル */}
+      <TimeRecommendationModal
+        isOpen={showTimeRecommendationModal}
+        onClose={() => setShowTimeRecommendationModal(false)}
         onApply={handleApplyFilters}
       />
     </div>

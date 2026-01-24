@@ -29,6 +29,8 @@ export default function ChoosePage() {
   const [selectedMovie, setSelectedMovie] = useState<CandidateMovie | null>(null);
   const [showModal, setShowModal] = useState<boolean>(false);
   const [isRandomSelecting, setIsRandomSelecting] = useState<boolean>(false);
+  const [providers, setProviders] = useState<any>(null);
+  const [loadingProviders, setLoadingProviders] = useState<boolean>(false);
 
   // localStorageから「見たい山」を取得
   useEffect(() => {
@@ -87,14 +89,36 @@ export default function ChoosePage() {
     }
   };
 
+  // 配信サービス情報を取得
+  const fetchProviders = async (movieId: number) => {
+    setLoadingProviders(true);
+    try {
+      const res = await fetch(`/api/movies/${movieId}/providers`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProviders(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch providers:", error);
+    } finally {
+      setLoadingProviders(false);
+    }
+  };
+
   // 「今すぐ見る」を選択
-  const handleWatchNow = () => {
+  const handleWatchNow = async () => {
     if (selectedMovie) {
-      saveSelectedMovie(selectedMovie, "watch_now");
-      // 「見たい山」をクリア
-      localStorage.removeItem("candidates");
-      // メイン画面に戻る
-      window.location.href = "/";
+      // 配信サービス情報を取得
+      await fetchProviders(selectedMovie.id);
+      // 配信サービスがある場合は、そのまま表示（モーダルは開いたまま）
+      // 配信サービスがない場合は、保存してメイン画面に戻る
+      if (!providers || (!providers.flatrate || providers.flatrate.length === 0)) {
+        saveSelectedMovie(selectedMovie, "watch_now");
+        localStorage.removeItem("candidates");
+        window.location.href = "/";
+      }
     }
   };
 
@@ -129,12 +153,12 @@ export default function ChoosePage() {
       <main className="relative z-10 min-h-screen px-4 py-8 sm:px-8">
         {/* ヘッダー */}
         <header className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
             <div className="h-7 w-7 rounded-sm bg-red-600 sm:h-8 sm:w-8" />
             <span className="text-lg font-semibold tracking-[0.25em] text-red-600 sm:text-xl">
               MOVIE SWIPE
             </span>
-          </div>
+          </Link>
           <Link
             href="/"
             className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
@@ -266,14 +290,51 @@ export default function ChoosePage() {
               <p className="text-sm text-zinc-400">どうしますか？</p>
             </div>
 
+            {/* 配信サービスリンク */}
+            {loadingProviders ? (
+              <div className="mb-4 flex items-center justify-center py-4">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-600 border-t-transparent" />
+              </div>
+            ) : providers && providers.flatrate && providers.flatrate.length > 0 ? (
+              <div className="mb-4 space-y-2">
+                <p className="text-sm font-semibold text-zinc-300">配信サービス</p>
+                <div className="flex flex-wrap gap-2">
+                  {providers.flatrate.map((provider: any) => (
+                    <a
+                      key={provider.provider_id}
+                      href={providers.link || "#"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => {
+                        saveSelectedMovie(selectedMovie, "watch_now");
+                        localStorage.removeItem("candidates");
+                      }}
+                      className="flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 text-sm text-white transition-colors hover:bg-zinc-700"
+                    >
+                      {provider.logo_path && (
+                        <img
+                          src={`https://image.tmdb.org/t/p/w92${provider.logo_path}`}
+                          alt={provider.provider_name}
+                          className="h-6 w-6 rounded"
+                        />
+                      )}
+                      <span>{provider.provider_name}で見る</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="flex flex-col gap-3">
-              <button
-                type="button"
-                onClick={handleWatchNow}
-                className="rounded-lg bg-red-600 px-6 py-3 text-base font-medium text-white transition-colors hover:bg-red-500"
-              >
-                今すぐ見る
-              </button>
+              {(!providers || !providers.flatrate || providers.flatrate.length === 0) && (
+                <button
+                  type="button"
+                  onClick={handleWatchNow}
+                  className="rounded-lg bg-red-600 px-6 py-3 text-base font-medium text-white transition-colors hover:bg-red-500"
+                >
+                  今すぐ見る
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleWatchLater}

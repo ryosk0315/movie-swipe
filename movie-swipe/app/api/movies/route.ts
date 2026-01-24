@@ -120,6 +120,30 @@ export async function GET(request: Request) {
     const randomIndex = Math.floor(Math.random() * data.results.length);
     let movie = data.results[randomIndex];
 
+    // 日本語版の詳細情報を取得（タイトルとあらすじを確実に日本語にするため）
+    try {
+      const detailUrl = new URL(`${TMDB_BASE_URL}/movie/${movie.id}`);
+      detailUrl.searchParams.set("api_key", apiKey);
+      detailUrl.searchParams.set("language", "ja-JP");
+
+      const detailRes = await fetch(detailUrl.toString(), {
+        cache: "no-store",
+      });
+
+      if (detailRes.ok) {
+        const detailData = (await detailRes.json()) as TMDbMovie;
+        // 日本語版のタイトルとあらすじを使用
+        movie = {
+          ...movie,
+          title: detailData.title || movie.title,
+          overview: detailData.overview || movie.overview,
+        };
+      }
+    } catch (error) {
+      console.error("[TMDb] Failed to fetch Japanese details:", error);
+      // エラーが出ても続行（元のデータを使用）
+    }
+
     // 日本語のあらすじが空の場合、英語版を取得
     if (!movie.overview || movie.overview.trim() === "") {
       try {

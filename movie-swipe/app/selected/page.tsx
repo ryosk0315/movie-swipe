@@ -47,6 +47,10 @@ export default function SelectedPage() {
     new Set(),
   );
 
+  // まとめてシェア機能の状態
+  const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
   // localStorageから選んだ映画を読み込む
   useEffect(() => {
     const loadSelectedMovies = () => {
@@ -168,6 +172,55 @@ export default function SelectedPage() {
     }
   };
 
+  // 選択モードの切り替え
+  const toggleSelectionMode = () => {
+    setIsSelectionMode(!isSelectionMode);
+    setSelectedIds(new Set()); // 選択をリセット
+  };
+
+  // 映画の選択をトグル
+  const toggleMovieSelection = (movieId: number) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(movieId)) {
+      newSelected.delete(movieId);
+    } else {
+      newSelected.add(movieId);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  // まとめてシェア
+  const shareMultipleMovies = async () => {
+    if (selectedIds.size === 0) return;
+
+    const moviesToShare = filteredMovies.filter((m) => selectedIds.has(m.id));
+    const titles = moviesToShare.map((m) => m.title).join("、");
+    const text = `今日選んだ映画：${titles}\n\n一緒に見ませんか？`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: "選んだ映画",
+          text,
+          url: window.location.origin,
+        });
+      } catch (error) {
+        console.log("Share cancelled");
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(`${text}\n${window.location.origin}`);
+        alert("クリップボードにコピーしました！");
+      } catch (error) {
+        console.error("Failed to copy:", error);
+      }
+    }
+
+    // 選択モードを終了
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
   return (
     <div className="min-h-screen bg-black text-white">
       {/* 背景のグラデーション */}
@@ -197,9 +250,32 @@ export default function SelectedPage() {
 
         {/* タイトルとフィルター */}
         <div className="mb-6">
-          <h1 className="mb-4 text-2xl font-semibold sm:text-3xl">
-            選んだ映画
-          </h1>
+          <div className="mb-4 flex items-center justify-between">
+            <h1 className="text-2xl font-semibold sm:text-3xl">選んだ映画</h1>
+            <div className="flex items-center gap-2">
+              {isSelectionMode && (
+                <button
+                  type="button"
+                  onClick={shareMultipleMovies}
+                  disabled={selectedIds.size === 0}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  📤 {selectedIds.size}本をシェア
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={toggleSelectionMode}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                  isSelectionMode
+                    ? "border-red-600 bg-red-600 text-white"
+                    : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-700"
+                }`}
+              >
+                {isSelectionMode ? "選択をやめる" : "まとめてシェア"}
+              </button>
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -256,13 +332,42 @@ export default function SelectedPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filteredMovies.map((movie) => (
-              <div
-                key={movie.id}
-                className={`group relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/80 transition-all hover:border-zinc-700 ${
-                  movie.watched ? "opacity-60" : ""
-                }`}
-              >
+            {filteredMovies.map((movie) => {
+              const isSelected = selectedIds.has(movie.id);
+              return (
+                <div
+                  key={movie.id}
+                  onClick={() => {
+                    if (isSelectionMode) {
+                      toggleMovieSelection(movie.id);
+                    }
+                  }}
+                  className={`group relative overflow-hidden rounded-xl border transition-all ${
+                    isSelectionMode
+                      ? "cursor-pointer"
+                      : ""
+                  } ${
+                    isSelected
+                      ? "border-red-600 bg-red-900/20 ring-2 ring-red-600"
+                      : "border-zinc-800 bg-zinc-900/80 hover:border-zinc-700"
+                  } ${movie.watched ? "opacity-60" : ""}`}
+                >
+                  {/* 選択チェックマーク */}
+                  {isSelectionMode && (
+                    <div className="absolute right-2 top-2 z-10">
+                      <div
+                        className={`flex h-6 w-6 items-center justify-center rounded-full border-2 ${
+                          isSelected
+                            ? "border-red-600 bg-red-600"
+                            : "border-zinc-400 bg-zinc-800"
+                        }`}
+                      >
+                        {isSelected && (
+                          <span className="text-xs text-white">✓</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 {/* ポスター */}
                 <div className="relative h-64 w-full overflow-hidden">
                   {movie.poster_path ? (
@@ -334,9 +439,15 @@ export default function SelectedPage() {
                                       }
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      onClick={() =>
-                                        handleProviderClick(movie.id)
-                                      }
+                                      onClick={(e) => {
+                                        if (isSelectionMode) {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          toggleMovieSelection(movie.id);
+                                        } else {
+                                          handleProviderClick(movie.id);
+                                        }
+                                      }}
                                       className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[10px] text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700"
                                     >
                                       {provider.logo_path ? (
@@ -370,33 +481,47 @@ export default function SelectedPage() {
                   )}
 
                   <div className="flex gap-2">
-                    {!movie.watched && (
+                    {!movie.watched && !isSelectionMode && (
                       <button
                         type="button"
-                        onClick={() => markAsWatched(movie.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          markAsWatched(movie.id);
+                        }}
                         className="flex-1 rounded-lg bg-green-600/20 px-3 py-1.5 text-xs font-medium text-green-400 transition-colors hover:bg-green-600/30"
                       >
                         見た
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => shareMovie(movie)}
-                      className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800"
-                    >
-                      シェア
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeMovie(movie.id)}
-                      className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800"
-                    >
-                      削除
-                    </button>
+                    {!isSelectionMode && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            shareMovie(movie);
+                          }}
+                          className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800"
+                        >
+                          シェア
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeMovie(movie.id);
+                          }}
+                          className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800"
+                        >
+                          削除
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

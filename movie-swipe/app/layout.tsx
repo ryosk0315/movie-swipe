@@ -17,6 +17,13 @@ export const metadata: Metadata = {
   description: "映画をスワイプで探せるWebアプリ。右スワイプで選んで、左スワイプでスキップ。あなたにぴったりの映画を見つけよう。",
   keywords: ["映画", "スワイプ", "おすすめ", "Movie", "TMDb"],
   authors: [{ name: "MOVIE SWIPE" }],
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+    viewportFit: "cover",
+  },
   openGraph: {
     title: "MOVIE SWIPE - スワイプで映画を探す",
     description: "映画をスワイプで探せるWebアプリ。右スワイプで選んで、左スワイプでスキップ。",
