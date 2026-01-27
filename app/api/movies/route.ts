@@ -24,6 +24,23 @@ type TMDbDiscoverResponse = {
   total_pages: number;
 };
 
+// TMDb translations API のレスポンス型
+type TMDbTranslation = {
+  iso_639_1: string;
+  iso_3166_1: string;
+  name: string;
+  english_name: string;
+  data: {
+    title?: string;
+    overview?: string;
+  };
+};
+
+type TMDbTranslationsResponse = {
+  id: number;
+  translations: TMDbTranslation[];
+};
+
 /**
  * GET /api/movies
  * クエリパラメータ:
@@ -119,6 +136,65 @@ export async function GET(request: Request) {
     // 取得したページ内からランダムに1件ピックアップ
     const randomIndex = Math.floor(Math.random() * data.results.length);
     let movie = data.results[randomIndex];
+
+    // translations API を使って日本語タイトル・あらすじを優先取得
+    try {
+      const translationsUrl = new URL(`${TMDB_BASE_URL}/movie/${movie.id}/translations`);
+      translationsUrl.searchParams.set("api_key", apiKey);
+
+      const translationsRes = await fetch(translationsUrl.toString(), {
+        cache: "no-store",
+      });
+
+      if (translationsRes.ok) {
+        const translationsData = (await translationsRes.json()) as TMDbTranslationsResponse;
+        
+        // 日本語（ja または ja-JP）の翻訳を探す
+        const japaneseTranslation = translationsData.translations.find(
+          (t) => t.iso_639_1 === "ja" || t.iso_3166_1 === "JP"
+        );
+
+        if (japaneseTranslation && japaneseTranslation.data) {
+          // 日本語のタイトルとあらすじを使用
+          if (japaneseTranslation.data.title) {
+            movie.title = japaneseTranslation.data.title;
+          }
+          if (japaneseTranslation.data.overview) {
+            movie.overview = japaneseTranslation.data.overview;
+          }
+        }
+      }
+    } catch (error) {
+      console.error("[TMDb] Failed to fetch translations:", error);
+      // エラーが出ても続行（次の方法を試す）
+    }
+
+    // translations で取得できなかった場合、日本語版の詳細情報を取得
+    if (!movie.overview || movie.overview.trim() === "" || movie.title === movie.original_title) {
+      try {
+        const detailUrl = new URL(`${TMDB_BASE_URL}/movie/${movie.id}`);
+        detailUrl.searchParams.set("api_key", apiKey);
+        detailUrl.searchParams.set("language", "ja-JP");
+
+        const detailRes = await fetch(detailUrl.toString(), {
+          cache: "no-store",
+        });
+
+        if (detailRes.ok) {
+          const detailData = (await detailRes.json()) as TMDbMovie;
+          // 日本語版のタイトルとあらすじを使用（まだ設定されていない場合のみ）
+          if (!movie.title || movie.title === movie.original_title) {
+            movie.title = detailData.title || movie.title;
+          }
+          if (!movie.overview || movie.overview.trim() === "") {
+            movie.overview = detailData.overview || movie.overview;
+          }
+        }
+      } catch (error) {
+        console.error("[TMDb] Failed to fetch Japanese details:", error);
+        // エラーが出ても続行（元のデータを使用）
+      }
+    }
 
     // 日本語のあらすじが空の場合、英語版を取得
     if (!movie.overview || movie.overview.trim() === "") {

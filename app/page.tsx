@@ -87,8 +87,9 @@ export default function Home() {
   const [loadingDetails, setLoadingDetails] = useState<boolean>(false);
   const [isDragged, setIsDragged] = useState<boolean>(false);
 
-  // 次に表示する映画を先読みしておくための状態（プリフェッチ用）
-  const [nextMovie, setNextMovie] = useState<Movie | null>(null);
+  // 映画キュー（5〜10枚を保持してスワイプ時のラグを削減）
+  const [movieQueue, setMovieQueue] = useState<Movie[]>([]);
+  const [isLoadingQueue, setIsLoadingQueue] = useState<boolean>(false);
 
   // フィルター条件の状態
   const [filters, setFilters] = useState<FilterOptions>({
@@ -99,11 +100,31 @@ export default function Home() {
     providers: [],
   });
 
-  // スワイプで次の映画を読み込む処理
+  // スワイプで次の映画を読み込む処理（キュー優先）
   const fetchMovie = useCallback(async (retryWithoutFilters = false, retryCount = 0) => {
     try {
       setLoading(true);
       setError(null);
+
+      // キューに映画があれば、それを優先的に使用
+      if (movieQueue.length > 0) {
+        const nextMovieFromQueue = movieQueue[0];
+        setMovieQueue((prev) => prev.slice(1)); // キューから1枚取り出す
+        setMovie(nextMovieFromQueue);
+        
+        // キューが残り2〜3枚になったら自動で補充
+        if (movieQueue.length <= 3 && !isLoadingQueue) {
+          loadMoviesToQueue(8);
+        }
+        
+        setLoading(false);
+        setStartX(null);
+        setStartY(null);
+        setCurrentX(0);
+        setCurrentY(0);
+        setIsDragging(false);
+        return;
+      }
 
       // リトライ時はフィルターをリセット
       const currentFilters = retryWithoutFilters
@@ -184,9 +205,10 @@ export default function Home() {
       localStorage.setItem("shownMovies", JSON.stringify(updatedShownList));
 
       setMovie(data);
-      // 現在の映画が決まったタイミングで、次の映画をバックグラウンドで先読み
-      if (!nextMovie) {
-        prefetchNextMovie();
+      
+      // キューが残り2〜3枚になったら自動で補充
+      if (movieQueue.length <= 3 && !isLoadingQueue) {
+        loadMoviesToQueue(8);
       }
     } catch (err: unknown) {
       console.error(err);
@@ -202,7 +224,7 @@ export default function Home() {
       setCurrentY(0);
       setIsDragging(false);
     }
-  }, [filters]);
+  }, [filters, movieQueue, loadMoviesToQueue, isLoadingQueue]);
 
   // 初回マウント時と filters 変更時に映画を取得（重複削除のため下に統合）
 
@@ -392,11 +414,12 @@ export default function Home() {
     localStorage.setItem("swipeStats", JSON.stringify(stats));
   }, []);
 
-  // 次の映画をバックグラウンドで取得（プリフェッチ）
-  const prefetchNextMovie = useCallback(async () => {
-    // すでにプリフェッチ済み、あるいは現在読み込み中なら何もしない
-    if (nextMovie || loading) return;
+  // 映画キューに複数枚（5〜10枚）をまとめて取得して追加
+  const loadMoviesToQueue = useCallback(async (count: number = 8) => {
+    // 既に読み込み中なら何もしない
+    if (isLoadingQueue) return;
 
+    setIsLoadingQueue(true);
     try {
       // フィルター条件をクエリパラメータに変換
       const params = new URLSearchParams();
@@ -420,24 +443,54 @@ export default function Home() {
       const watchedMovies = JSON.parse(localStorage.getItem("watchedMovies") || "[]");
       const shownMovies = JSON.parse(localStorage.getItem("shownMovies") || "[]");
       const excludedIds = [...new Set([...watchedMovies, ...shownMovies])];
-      if (excludedIds.length > 0) {
-        params.set("without_ids", excludedIds.join(","));
-      }
 
-      const url = `/api/movies${params.toString() ? `?${params.toString()}` : ""}`;
-      const res = await fetch(url, {
-        method: "GET",
-        cache: "no-store",
+      // 複数の映画を並行して取得
+      const moviePromises = Array.from({ length: count }, async () => {
+        let retryCount = 0;
+        let data: Movie | null = null;
+        
+        while (retryCount < 10) {
+          const url = `/api/movies${params.toString() ? `?${params.toString()}` : ""}`;
+          const res = await fetch(url, {
+            method: "GET",
+            cache: "no-store",
+          });
+
+          if (!res.ok) return null;
+
+          data = (await res.json()) as Movie;
+          
+          // 表示済みまたは「見たことある」映画を除外（最大10回まで再試行）
+          const currentShown = JSON.parse(localStorage.getItem("shownMovies") || "[]");
+          const currentWatched = JSON.parse(localStorage.getItem("watchedMovies") || "[]");
+          
+          if (!currentShown.includes(data.id) && !currentWatched.includes(data.id)) {
+            // 表示済みリストに追加（最大100件まで保持）
+            const updatedShownList = [...currentShown, data.id];
+            if (updatedShownList.length > 100) {
+              updatedShownList.shift();
+            }
+            localStorage.setItem("shownMovies", JSON.stringify(updatedShownList));
+            break;
+          }
+          
+          retryCount++;
+        }
+
+        return data;
       });
 
-      if (!res.ok) return;
+      const fetchedMovies = await Promise.all(moviePromises);
+      const validMovies = fetchedMovies.filter((m): m is Movie => m !== null);
 
-      const data = (await res.json()) as Movie;
-      setNextMovie(data);
+      // キューに追加
+      setMovieQueue((prev) => [...prev, ...validMovies]);
     } catch (error) {
-      console.error("Failed to prefetch movie:", error);
+      console.error("Failed to load movies to queue:", error);
+    } finally {
+      setIsLoadingQueue(false);
     }
-  }, [filters, nextMovie, loading]);
+  }, [filters, isLoadingQueue]);
 
   // スワイプの最終判定処理
   const finishSwipe = () => {
@@ -463,18 +516,12 @@ export default function Home() {
             localStorage.setItem("candidates", JSON.stringify(candidates));
             window.location.href = "/choose";
           } else {
-            // 次の映画を即座に表示（プリフェッチされていればそれを使う）
+            // 次の映画を即座に表示（キューから取得）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
             setCurrentY(0);
-            if (nextMovie) {
-              setMovie(nextMovie);
-              setNextMovie(null);
-              prefetchNextMovie();
-            } else {
-              fetchMovie();
-            }
+            fetchMovie();
           }
         }, 100);
         return;
@@ -495,18 +542,12 @@ export default function Home() {
             localStorage.setItem("candidates", JSON.stringify(candidates));
             window.location.href = "/choose";
           } else {
-            // 次の映画を即座に表示（プリフェッチされていればそれを使う）
+            // 次の映画を即座に表示（キューから取得）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
             setCurrentY(0);
-            if (nextMovie) {
-              setMovie(nextMovie);
-              setNextMovie(null);
-              prefetchNextMovie();
-            } else {
-              fetchMovie();
-            }
+            fetchMovie();
           }
         }, 100);
         return;
@@ -535,18 +576,12 @@ export default function Home() {
             localStorage.setItem("candidates", JSON.stringify([...candidates, { ...movie, addedAt: Date.now() }]));
             window.location.href = "/choose";
           } else {
-            // 次の映画を即座に表示（プリフェッチされていればそれを使う）
+            // 次の映画を即座に表示（キューから取得）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
             setCurrentY(0);
-            if (nextMovie) {
-              setMovie(nextMovie);
-              setNextMovie(null);
-              prefetchNextMovie();
-            } else {
-              fetchMovie();
-            }
+            fetchMovie();
           }
         }, 100); // アニメーション時間を250ms → 100msに短縮
       } else {
@@ -569,18 +604,12 @@ export default function Home() {
             localStorage.setItem("candidates", JSON.stringify(candidates));
             window.location.href = "/choose";
           } else {
-            // 次の映画を即座に表示（プリフェッチされていればそれを使う）
+            // 次の映画を即座に表示（キューから取得）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
             setCurrentY(0);
-            if (nextMovie) {
-              setMovie(nextMovie);
-              setNextMovie(null);
-              prefetchNextMovie();
-            } else {
-              fetchMovie();
-            }
+            fetchMovie();
           }
         }, 100); // アニメーション時間を250ms → 100msに短縮
       }
@@ -663,10 +692,29 @@ export default function Home() {
     // fetchMovie は filters の変更で自動的に再実行される
   };
 
-  // filters が変更されたら映画を再取得
+  // 初回マウント時とフィルター変更時にキューを初期化
   useEffect(() => {
-    fetchMovie();
-  }, [filters, fetchMovie]);
+    // キューをリセット
+    setMovieQueue([]);
+    setSwipeCount(0);
+    
+    // 初回に8枚まとめて取得してキューに積む
+    loadMoviesToQueue(8);
+  }, [filters, loadMoviesToQueue]);
+
+  // キューが準備できたら最初の映画を表示
+  useEffect(() => {
+    if (movieQueue.length > 0 && !movie) {
+      const firstMovie = movieQueue[0];
+      setMovieQueue((prev) => prev.slice(1)); // キューから1枚取り出す
+      setMovie(firstMovie);
+      
+      // キューが残り2〜3枚になったら自動で補充
+      if (movieQueue.length <= 3 && !isLoadingQueue) {
+        loadMoviesToQueue(8);
+      }
+    }
+  }, [movieQueue, movie, isLoadingQueue, loadMoviesToQueue]);
 
   return (
     <div className="min-h-screen bg-black text-white">
