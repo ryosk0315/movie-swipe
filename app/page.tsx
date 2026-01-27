@@ -6,7 +6,7 @@
 // - 右スワイプで「選ぶ」、左スワイプで「スキップ」
 // - Netflix風の黒背景デザイン
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import FilterModal, { type FilterOptions } from "./components/FilterModal";
 import TimeRecommendationModal from "./components/TimeRecommendationModal";
@@ -112,11 +112,6 @@ export default function Home() {
         setMovieQueue((prev) => prev.slice(1)); // キューから1枚取り出す
         setMovie(nextMovieFromQueue);
         
-        // キューが残り2〜3枚になったら自動で補充
-        if (movieQueue.length <= 3 && !isLoadingQueue) {
-          loadMoviesToQueue(8);
-        }
-        
         setLoading(false);
         setStartX(null);
         setStartY(null);
@@ -205,11 +200,6 @@ export default function Home() {
       localStorage.setItem("shownMovies", JSON.stringify(updatedShownList));
 
       setMovie(data);
-      
-      // キューが残り2〜3枚になったら自動で補充
-      if (movieQueue.length <= 3 && !isLoadingQueue) {
-        loadMoviesToQueue(8);
-      }
     } catch (err: unknown) {
       console.error(err);
       const message =
@@ -224,7 +214,8 @@ export default function Home() {
       setCurrentY(0);
       setIsDragging(false);
     }
-  }, [filters, movieQueue, loadMoviesToQueue, isLoadingQueue]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, movieQueue, isLoadingQueue]);
 
   // 初回マウント時と filters 変更時に映画を取得（重複削除のため下に統合）
 
@@ -416,6 +407,9 @@ export default function Home() {
 
   // 映画キューに複数枚（5〜10枚）をまとめて取得して追加
   const loadMoviesToQueue = useCallback(async (count: number = 8) => {
+    // SSR時は何もしない
+    if (typeof window === "undefined") return;
+    
     // 既に読み込み中なら何もしない
     if (isLoadingQueue) return;
 
@@ -694,27 +688,37 @@ export default function Home() {
 
   // 初回マウント時とフィルター変更時にキューを初期化
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    
     // キューをリセット
     setMovieQueue([]);
     setSwipeCount(0);
     
     // 初回に8枚まとめて取得してキューに積む
     loadMoviesToQueue(8);
-  }, [filters, loadMoviesToQueue]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   // キューが準備できたら最初の映画を表示
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    
     if (movieQueue.length > 0 && !movie) {
       const firstMovie = movieQueue[0];
       setMovieQueue((prev) => prev.slice(1)); // キューから1枚取り出す
       setMovie(firstMovie);
-      
-      // キューが残り2〜3枚になったら自動で補充
-      if (movieQueue.length <= 3 && !isLoadingQueue) {
-        loadMoviesToQueue(8);
-      }
     }
-  }, [movieQueue, movie, isLoadingQueue, loadMoviesToQueue]);
+  }, [movieQueue, movie]);
+
+  // キューが残り2〜3枚になったら自動で補充
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    
+    if (movieQueue.length <= 3 && !isLoadingQueue && movieQueue.length > 0) {
+      loadMoviesToQueue(8);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movieQueue.length, isLoadingQueue]);
 
   return (
     <div className="min-h-screen bg-black text-white">
