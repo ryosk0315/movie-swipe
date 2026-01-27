@@ -74,6 +74,9 @@ export default function Home() {
   // 時間帯レコメンドモーダルの表示状態
   const [showTimeRecommendationModal, setShowTimeRecommendationModal] = useState<boolean>(false);
 
+  // ヘッダー右上の「その他メニュー」の表示状態
+  const [showMoreMenu, setShowMoreMenu] = useState<boolean>(false);
+
   // スワイプカウントと「見たい山」の管理
   const [swipeCount, setSwipeCount] = useState<number>(0);
   const [candidates, setCandidates] = useState<CandidateMovie[]>([]);
@@ -83,6 +86,9 @@ export default function Home() {
   const [movieDetails, setMovieDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState<boolean>(false);
   const [isDragged, setIsDragged] = useState<boolean>(false);
+
+  // 次に表示する映画を先読みしておくための状態（プリフェッチ用）
+  const [nextMovie, setNextMovie] = useState<Movie | null>(null);
 
   // フィルター条件の状態
   const [filters, setFilters] = useState<FilterOptions>({
@@ -176,8 +182,12 @@ export default function Home() {
         updatedShownList.shift(); // 古いものを削除
       }
       localStorage.setItem("shownMovies", JSON.stringify(updatedShownList));
-      
+
       setMovie(data);
+      // 現在の映画が決まったタイミングで、次の映画をバックグラウンドで先読み
+      if (!nextMovie) {
+        prefetchNextMovie();
+      }
     } catch (err: unknown) {
       console.error(err);
       const message =
@@ -382,6 +392,53 @@ export default function Home() {
     localStorage.setItem("swipeStats", JSON.stringify(stats));
   }, []);
 
+  // 次の映画をバックグラウンドで取得（プリフェッチ）
+  const prefetchNextMovie = useCallback(async () => {
+    // すでにプリフェッチ済み、あるいは現在読み込み中なら何もしない
+    if (nextMovie || loading) return;
+
+    try {
+      // フィルター条件をクエリパラメータに変換
+      const params = new URLSearchParams();
+      if (filters.genres.length > 0) {
+        params.set("genres", filters.genres.join(","));
+      }
+      if (filters.runtime) {
+        params.set("runtime", String(filters.runtime));
+      }
+      if (filters.yearFrom) {
+        params.set("year_from", String(filters.yearFrom));
+      }
+      if (filters.yearTo) {
+        params.set("year_to", String(filters.yearTo));
+      }
+      if (filters.providers.length > 0) {
+        params.set("providers", filters.providers.join(","));
+      }
+
+      // 「見たことある」映画と「表示済み」映画を除外
+      const watchedMovies = JSON.parse(localStorage.getItem("watchedMovies") || "[]");
+      const shownMovies = JSON.parse(localStorage.getItem("shownMovies") || "[]");
+      const excludedIds = [...new Set([...watchedMovies, ...shownMovies])];
+      if (excludedIds.length > 0) {
+        params.set("without_ids", excludedIds.join(","));
+      }
+
+      const url = `/api/movies${params.toString() ? `?${params.toString()}` : ""}`;
+      const res = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (!res.ok) return;
+
+      const data = (await res.json()) as Movie;
+      setNextMovie(data);
+    } catch (error) {
+      console.error("Failed to prefetch movie:", error);
+    }
+  }, [filters, nextMovie, loading]);
+
   // スワイプの最終判定処理
   const finishSwipe = () => {
     const distanceX = currentX;
@@ -406,12 +463,18 @@ export default function Home() {
             localStorage.setItem("candidates", JSON.stringify(candidates));
             window.location.href = "/choose";
           } else {
-            // 次の映画を取得
+            // 次の映画を即座に表示（プリフェッチされていればそれを使う）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
             setCurrentY(0);
-            fetchMovie();
+            if (nextMovie) {
+              setMovie(nextMovie);
+              setNextMovie(null);
+              prefetchNextMovie();
+            } else {
+              fetchMovie();
+            }
           }
         }, 100);
         return;
@@ -432,12 +495,18 @@ export default function Home() {
             localStorage.setItem("candidates", JSON.stringify(candidates));
             window.location.href = "/choose";
           } else {
-            // 次の映画を取得
+            // 次の映画を即座に表示（プリフェッチされていればそれを使う）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
             setCurrentY(0);
-            fetchMovie();
+            if (nextMovie) {
+              setMovie(nextMovie);
+              setNextMovie(null);
+              prefetchNextMovie();
+            } else {
+              fetchMovie();
+            }
           }
         }, 100);
         return;
@@ -466,12 +535,18 @@ export default function Home() {
             localStorage.setItem("candidates", JSON.stringify([...candidates, { ...movie, addedAt: Date.now() }]));
             window.location.href = "/choose";
           } else {
-            // 次の映画を取得
+            // 次の映画を即座に表示（プリフェッチされていればそれを使う）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
             setCurrentY(0);
-            fetchMovie();
+            if (nextMovie) {
+              setMovie(nextMovie);
+              setNextMovie(null);
+              prefetchNextMovie();
+            } else {
+              fetchMovie();
+            }
           }
         }, 100); // アニメーション時間を250ms → 100msに短縮
       } else {
@@ -494,12 +569,18 @@ export default function Home() {
             localStorage.setItem("candidates", JSON.stringify(candidates));
             window.location.href = "/choose";
           } else {
-            // 次の映画を取得
+            // 次の映画を即座に表示（プリフェッチされていればそれを使う）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
             setCurrentY(0);
-            fetchMovie();
+            if (nextMovie) {
+              setMovie(nextMovie);
+              setNextMovie(null);
+              prefetchNextMovie();
+            } else {
+              fetchMovie();
+            }
           }
         }, 100); // アニメーション時間を250ms → 100msに短縮
       }
@@ -601,45 +682,67 @@ export default function Home() {
               MOVIE SWIPE
             </span>
           </Link>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowTimeRecommendationModal(true)}
-              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
-            >
-              🎯 時間帯レコメンド
-            </button>
+          <div className="relative flex items-center gap-1 sm:gap-2">
+            {/* 1軍ボタン：フィルター & 選んだリスト */}
             <button
               type="button"
               onClick={() => setShowFilterModal(true)}
-              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
+              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-2 py-1 text-[11px] font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-3 sm:py-1.5 sm:text-xs"
             >
               🎬 フィルター
             </button>
             <a
               href="/selected"
-              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
+              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-2 py-1 text-[11px] font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-3 sm:py-1.5 sm:text-xs"
             >
               選んだリスト
             </a>
-            <a
-              href="/stats"
-              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
-            >
-              📊 統計
-            </a>
-            <a
-              href="/vote"
-              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
-            >
-              👥 投票モード
-            </a>
-            <a
-              href="/favorites"
-              className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-4 sm:text-sm"
-            >
-              ⭐ お気に入り
-            </a>
+
+            {/* その他の機能はメニューに集約 */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowMoreMenu((prev) => !prev)}
+                className="flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900/80 px-2 py-1 text-[11px] font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 sm:px-3 sm:py-1.5 sm:text-xs"
+              >
+                ⋯ メニュー
+              </button>
+              {showMoreMenu && (
+                <div className="absolute right-0 mt-1 w-40 rounded-lg border border-zinc-800 bg-zinc-900/95 py-1 text-xs shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowTimeRecommendationModal(true);
+                      setShowMoreMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-zinc-300 hover:bg-zinc-800"
+                  >
+                    <span>🎯 時間帯レコメンド</span>
+                  </button>
+                  <a
+                    href="/stats"
+                    onClick={() => setShowMoreMenu(false)}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-zinc-300 hover:bg-zinc-800"
+                  >
+                    <span>📊 統計</span>
+                  </a>
+                  <a
+                    href="/vote"
+                    onClick={() => setShowMoreMenu(false)}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-zinc-300 hover:bg-zinc-800"
+                  >
+                    <span>👥 投票モード</span>
+                  </a>
+                  <a
+                    href="/favorites"
+                    onClick={() => setShowMoreMenu(false)}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-zinc-300 hover:bg-zinc-800"
+                  >
+                    <span>⭐ お気に入り</span>
+                  </a>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -660,7 +763,8 @@ export default function Home() {
             {/* メインカード */}
             <div
               className="relative z-10 h-[400px] cursor-grab select-none rounded-3xl border border-zinc-800 bg-zinc-900/80 shadow-2xl shadow-black/70 transition-shadow hover:shadow-black"
-              style={{ ...cardStyle, touchAction: "pan-x" }}
+              /* スワイプ中にブラウザのスクロールが発生しないように、カード上ではタッチスクロールを無効化 */
+              style={{ ...cardStyle, touchAction: "none" }}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
