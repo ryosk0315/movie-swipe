@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import DataBackupModal from "../components/DataBackupModal";
 
 type FavoriteMovie = {
   id: number;
@@ -25,6 +26,7 @@ type SwipeStat = {
 export default function FavoritesPage() {
   const [favorites, setFavorites] = useState<FavoriteMovie[]>([]);
   const [recommendations, setRecommendations] = useState<number[]>([]);
+  const [showBackupModal, setShowBackupModal] = useState(false);
 
   // localStorageからお気に入りを読み込む
   useEffect(() => {
@@ -111,12 +113,28 @@ export default function FavoritesPage() {
         {/* タイトル */}
         <div className="mb-6 text-center">
           <h1 className="mb-3 text-3xl font-bold sm:text-4xl">お気に入り</h1>
-          <p className="text-zinc-400">
+          <p className="mb-2 text-zinc-400">
             {favorites.length > 0
               ? `${favorites.length}本のお気に入り映画`
               : "まだお気に入りがありません"}
           </p>
+          <button
+            type="button"
+            onClick={() => setShowBackupModal(true)}
+            className="text-sm text-zinc-400 underline underline-offset-2 hover:text-zinc-300"
+          >
+            データのバックアップ
+          </button>
         </div>
+
+        <DataBackupModal
+          isOpen={showBackupModal}
+          onClose={() => setShowBackupModal(false)}
+          onImportComplete={() => {
+            const stored = localStorage.getItem("favoriteMovies");
+            if (stored) setFavorites(JSON.parse(stored));
+          }}
+        />
 
         {/* リコメンド */}
         {recommendations.length > 0 && (

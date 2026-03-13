@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import DataBackupModal from "../components/DataBackupModal";
 
 type SwipeStat = {
   movieId: number;
@@ -41,6 +42,7 @@ export default function StatsPage() {
   const [selectedMovies, setSelectedMovies] = useState<SelectedMovie[]>([]);
   const [favoriteMovies, setFavoriteMovies] = useState<FavoriteMovie[]>([]);
   const [period, setPeriod] = useState<StatPeriod>("all");
+  const [showBackupModal, setShowBackupModal] = useState(false);
 
   // localStorageからデータを取得
   useEffect(() => {
@@ -131,7 +133,27 @@ export default function StatsPage() {
         {/* タイトル */}
         <div className="mb-6 text-center">
           <h1 className="mb-3 text-3xl font-bold sm:text-4xl">履歴統計</h1>
+          <button
+            type="button"
+            onClick={() => setShowBackupModal(true)}
+            className="text-sm text-zinc-400 underline underline-offset-2 hover:text-zinc-300"
+          >
+            データのバックアップ
+          </button>
         </div>
+
+        <DataBackupModal
+          isOpen={showBackupModal}
+          onClose={() => setShowBackupModal(false)}
+          onImportComplete={() => {
+            const stats = localStorage.getItem("swipeStats");
+            const selected = localStorage.getItem("selectedMovies");
+            const favorites = localStorage.getItem("favoriteMovies");
+            if (stats) setSwipeStats(JSON.parse(stats));
+            if (selected) setSelectedMovies(JSON.parse(selected));
+            if (favorites) setFavoriteMovies(JSON.parse(favorites));
+          }}
+        />
 
         {/* 期間選択 */}
         <div className="mb-8 flex justify-center gap-2">

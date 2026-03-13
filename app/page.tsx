@@ -10,6 +10,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import FilterModal, { type FilterOptions } from "./components/FilterModal";
 import TimeRecommendationModal from "./components/TimeRecommendationModal";
+import { parseError } from "./utils/errorHandler";
+import { isMobile } from "./utils/deviceDetection";
+import { getProviderWatchUrl } from "./utils/providerUrls";
 
 // APIから返ってくる映画データの型
 type Movie = {
@@ -91,6 +94,9 @@ export default function Home() {
   const [movieQueue, setMovieQueue] = useState<Movie[]>([]);
   const [isLoadingQueue, setIsLoadingQueue] = useState<boolean>(false);
 
+  // オフライン検知
+  const [isOffline, setIsOffline] = useState<boolean>(false);
+
   // フィルター条件の状態
   const [filters, setFilters] = useState<FilterOptions>({
     genres: [],
@@ -154,6 +160,18 @@ export default function Home() {
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         
+        // 429エラー（レート制限）の場合
+        if (res.status === 429) {
+          const retryAfter = body?.retryAfter || 10; // デフォルト10秒
+          setError(`APIのリクエスト制限に達しました。${retryAfter}秒後に自動で再試行します...`);
+          
+          // 指定秒数後に再試行
+          setTimeout(() => {
+            fetchMovie(retryWithoutFilters, retryCount);
+          }, retryAfter * 1000);
+          return;
+        }
+        
         // 404エラー（映画が見つからない）の場合
         if (res.status === 404 && !retryWithoutFilters) {
           // フィルターをリセットして再試行
@@ -173,7 +191,8 @@ export default function Home() {
           return;
         }
         
-        throw new Error(body?.error || "映画の取得に失敗しました。");
+        const userMsg = body?.error || "映画の取得に失敗しました。";
+        throw new Error(userMsg);
       }
 
       const data = (await res.json()) as Movie;
@@ -202,9 +221,8 @@ export default function Home() {
       setMovie(data);
     } catch (err: unknown) {
       console.error(err);
-      const message =
-        err instanceof Error ? err.message : "予期しないエラーが発生しました。";
-      setError(message);
+      const parsed = parseError(err);
+      setError(parsed.userMessage);
     } finally {
       setLoading(false);
       // 次のカードに備えて位置をリセット
@@ -438,7 +456,7 @@ export default function Home() {
       const shownMovies = JSON.parse(localStorage.getItem("shownMovies") || "[]");
       const excludedIds = [...new Set([...watchedMovies, ...shownMovies])];
 
-      // 複数の映画を並行して取得
+      // 複数の映画を完全並列で取得（サーバー側のレート制限管理に任せる）
       const moviePromises = Array.from({ length: count }, async () => {
         let retryCount = 0;
         let data: Movie | null = null;
@@ -449,6 +467,15 @@ export default function Home() {
             method: "GET",
             cache: "no-store",
           });
+
+          // 429エラー（レート制限）の場合、待機してリトライ
+          if (res.status === 429) {
+            const body = await res.json().catch(() => null);
+            const retryAfter = body?.retryAfter || 10;
+            await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+            retryCount++;
+            continue;
+          }
 
           if (!res.ok) return null;
 
@@ -640,8 +667,8 @@ export default function Home() {
     }
   }, [showModal, selectedMovie]);
 
-  // 配信サービス情報を取得
-  const fetchSelectedMovieProviders = async (movieId: number) => {
+  // 配信サービス情報を取得（返り値で判定に使う）
+  const fetchSelectedMovieProviders = async (movieId: number): Promise<{ link: string | null; flatrate: { id?: number; provider_id?: number; name?: string; provider_name?: string; logo_path?: string }[] } | null> => {
     setLoadingSelectedProviders(true);
     try {
       const res = await fetch(`/api/movies/${movieId}/providers`, {
@@ -650,24 +677,22 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         setSelectedMovieProviders(data);
+        return data;
       }
+      return null;
     } catch (error) {
       console.error("Failed to fetch providers:", error);
+      return null;
     } finally {
       setLoadingSelectedProviders(false);
     }
   };
 
-  // 「今すぐ見る」を選択
-  const handleWatchNow = async () => {
+  // 「今すぐ見るに追加」（配信なしのときのみ表示。モーダル開時に既に配信取得済み）
+  const handleWatchNow = () => {
     if (selectedMovie) {
-      // 配信サービス情報を取得
-      await fetchSelectedMovieProviders(selectedMovie.id);
-      // 配信サービスがない場合は、保存してモーダルを閉じる
-      if (!selectedMovieProviders || (!selectedMovieProviders.flatrate || selectedMovieProviders.flatrate.length === 0)) {
-        saveSelectedMovie(selectedMovie, "watch_now");
-        handleModalClose();
-      }
+      saveSelectedMovie(selectedMovie, "watch_now");
+      handleModalClose();
     }
   };
 
@@ -710,15 +735,29 @@ export default function Home() {
     }
   }, [movieQueue, movie]);
 
-  // キューが残り2〜3枚になったら自動で補充
+  // キューが残り5枚になったら自動で補充（早めに補充して待ち時間を減らす）
   useEffect(() => {
     if (typeof window === "undefined") return;
     
-    if (movieQueue.length <= 3 && !isLoadingQueue && movieQueue.length > 0) {
+    if (movieQueue.length <= 5 && !isLoadingQueue && movieQueue.length > 0) {
       loadMoviesToQueue(8);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [movieQueue.length, isLoadingQueue]);
+
+  // オフライン検知
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    setIsOffline(!navigator.onLine);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -726,6 +765,13 @@ export default function Home() {
       <div className="pointer-events-none fixed inset-0 bg-gradient-to-b from-black via-black/90 to-zinc-950" />
 
       <main className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4 py-10">
+        {/* オフライン時バナー */}
+        {isOffline && (
+          <div className="fixed left-0 right-0 top-0 z-30 bg-amber-600/95 px-4 py-2 text-center text-sm font-medium text-white">
+            オフラインです。接続を確認してください。
+          </div>
+        )}
+
         {/* ロゴ風ヘッダー */}
         <header className="absolute left-4 right-4 top-4 z-20 flex items-center justify-between sm:left-10 sm:right-10 sm:top-8">
           <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
@@ -944,54 +990,75 @@ export default function Home() {
               <h3 className="mb-2 text-xl font-semibold">
                 {selectedMovie.title} を選びました
               </h3>
-              <p className="text-sm text-zinc-400">
-                どうしますか？
-              </p>
+              {loadingSelectedProviders ? (
+                <p className="text-sm text-zinc-400">配信サービスを確認中…</p>
+              ) : null}
             </div>
 
-            {/* 配信サービスリンク */}
+            {/* 配信サービス: 読み込み中 */}
             {loadingSelectedProviders ? (
-              <div className="mb-4 flex items-center justify-center py-4">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-600 border-t-transparent" />
+              <div className="mb-4 flex justify-center py-4">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-transparent" />
               </div>
-            ) : selectedMovieProviders && selectedMovieProviders.flatrate && selectedMovieProviders.flatrate.length > 0 ? (
+            ) : selectedMovieProviders?.flatrate?.length ? (
+              /* 配信あり → リンクを表示（今すぐ見るの代わり） */
               <div className="mb-4 space-y-2">
-                <p className="text-sm font-semibold text-zinc-300">配信サービス</p>
+                <p className="text-sm font-semibold text-zinc-300">今すぐ見る（配信サービスへ）</p>
                 <div className="flex flex-wrap gap-2">
-                  {selectedMovieProviders.flatrate.map((provider: any) => (
-                    <a
-                      key={provider.provider_id}
-                      href={selectedMovieProviders.link || "#"}
-            target="_blank"
-            rel="noopener noreferrer"
-                      onClick={() => {
-                        saveSelectedMovie(selectedMovie, "watch_now");
-                        handleModalClose();
-                      }}
-                      className="flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 text-sm text-white transition-colors hover:bg-zinc-700"
-                    >
-                      {provider.logo_path && (
-                        <img
-                          src={`https://image.tmdb.org/t/p/w92${provider.logo_path}`}
-                          alt={provider.provider_name}
-                          className="h-6 w-6 rounded"
-                        />
-                      )}
-                      <span>{provider.provider_name}で見る</span>
-                    </a>
-                  ))}
+                  {selectedMovieProviders.flatrate.map((provider: { id?: number; provider_id?: number; name?: string; provider_name?: string; logo_path?: string }) => {
+                    const pid = provider.id ?? provider.provider_id ?? 0;
+                    const name = provider.name ?? provider.provider_name ?? "";
+                    const watchUrl = getProviderWatchUrl(
+                      pid,
+                      selectedMovieProviders.link ?? null,
+                      isMobile(),
+                    );
+                    return (
+                      <a
+                        key={pid}
+                        href={watchUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => {
+                          saveSelectedMovie(selectedMovie, "watch_now");
+                          handleModalClose();
+                        }}
+                        className="flex items-center gap-2 rounded-lg bg-red-600/90 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-500"
+                      >
+                        {provider.logo_path && (
+                          <img
+                            src={`https://image.tmdb.org/t/p/w92${provider.logo_path}`}
+                            alt={name}
+                            className="h-6 w-6 rounded"
+                          />
+                        )}
+                        <span>{name}で見る</span>
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
-            ) : null}
+            ) : (
+              /* 配信なし → 明示して選ぶ/選ばない */
+              <div className="mb-4 rounded-lg border border-amber-600/50 bg-amber-950/30 px-4 py-3">
+                <p className="text-sm font-medium text-amber-200">
+                  この映画は現在配信がありません
+                </p>
+                <p className="mt-1 text-xs text-zinc-400">
+                  それでもリストに追加するか、選ばないで閉じることができます。
+                </p>
+              </div>
+            )}
 
-            <div className="flex flex-col gap-3">
-              {(!selectedMovieProviders || !selectedMovieProviders.flatrate || selectedMovieProviders.flatrate.length === 0) && (
+            <div className="flex flex-col gap-2">
+              {/* 配信なしのときだけ「今すぐ見るに追加」を表示 */}
+              {!loadingSelectedProviders && (!selectedMovieProviders?.flatrate?.length) && (
                 <button
                   type="button"
                   onClick={handleWatchNow}
                   className="rounded-lg bg-red-600 px-6 py-3 text-base font-medium text-white transition-colors hover:bg-red-500"
                 >
-                  今すぐ見る
+                  今すぐ見るに追加
                 </button>
               )}
               <button
@@ -999,7 +1066,14 @@ export default function Home() {
                 onClick={handleWatchLater}
                 className="rounded-lg border border-zinc-700 bg-zinc-800 px-6 py-3 text-base font-medium text-white transition-colors hover:border-zinc-600 hover:bg-zinc-700"
               >
-                後で見る
+                後で見るに追加
+              </button>
+              <button
+                type="button"
+                onClick={handleModalClose}
+                className="rounded-lg border border-zinc-600 px-6 py-2.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+              >
+                選ばない（閉じる）
               </button>
             </div>
           </div>

@@ -8,6 +8,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import DataBackupModal from "../components/DataBackupModal";
+import { isMobile } from "../utils/deviceDetection";
+import { getProviderWatchUrl } from "../utils/providerUrls";
 
 // 選んだ映画の型
 type SelectedMovie = {
@@ -50,6 +53,7 @@ export default function SelectedPage() {
   // まとめてシェア機能の状態
   const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showBackupModal, setShowBackupModal] = useState(false);
 
   // localStorageから選んだ映画を読み込む
   useEffect(() => {
@@ -250,8 +254,17 @@ export default function SelectedPage() {
 
         {/* タイトルとフィルター */}
         <div className="mb-6">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-2 flex items-center justify-between">
             <h1 className="text-2xl font-semibold sm:text-3xl">選んだ映画</h1>
+          </div>
+          <div className="mb-4 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setShowBackupModal(true)}
+              className="text-sm text-zinc-400 underline underline-offset-2 hover:text-zinc-300"
+            >
+              データのバックアップ
+            </button>
             <div className="flex items-center gap-2">
               {isSelectionMode && (
                 <button
@@ -276,6 +289,15 @@ export default function SelectedPage() {
               </button>
             </div>
           </div>
+        <DataBackupModal
+          isOpen={showBackupModal}
+          onClose={() => setShowBackupModal(false)}
+          onImportComplete={() => {
+            const stored = localStorage.getItem("selectedMovies");
+            if (stored) setSelectedMovies(JSON.parse(stored));
+          }}
+        />
+
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -431,35 +453,40 @@ export default function SelectedPage() {
                               </p>
                               <div className="flex flex-wrap gap-1">
                                 {providersMap[movie.id]!.flatrate.map(
-                                  (provider) => (
-                                    <a
-                                      key={provider.id}
-                                      href={
-                                        providersMap[movie.id]!.link || "#"
-                                      }
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(e) => {
-                                        if (isSelectionMode) {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          toggleMovieSelection(movie.id);
-                                        } else {
-                                          handleProviderClick(movie.id);
-                                        }
-                                      }}
-                                      className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[10px] text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700"
-                                    >
-                                      {provider.logo_path ? (
-                                        <img
-                                          src={`https://image.tmdb.org/t/p/w45${provider.logo_path}`}
-                                          alt={provider.name}
-                                          className="h-3 w-3 object-contain"
-                                        />
-                                      ) : null}
-                                      <span>{provider.name}</span>
-                                    </a>
-                                  ),
+                                  (provider) => {
+                                    const watchUrl = getProviderWatchUrl(
+                                      provider.id,
+                                      providersMap[movie.id]!.link ?? null,
+                                      isMobile(),
+                                    );
+                                    return (
+                                      <a
+                                        key={provider.id}
+                                        href={watchUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => {
+                                          if (isSelectionMode) {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            toggleMovieSelection(movie.id);
+                                          } else {
+                                            handleProviderClick(movie.id);
+                                          }
+                                        }}
+                                        className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[10px] text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700"
+                                      >
+                                        {provider.logo_path ? (
+                                          <img
+                                            src={`https://image.tmdb.org/t/p/w45${provider.logo_path}`}
+                                            alt={provider.name}
+                                            className="h-3 w-3 object-contain"
+                                          />
+                                        ) : null}
+                                        <span>{provider.name}</span>
+                                      </a>
+                                    );
+                                  },
                                 )}
                               </div>
                             </div>

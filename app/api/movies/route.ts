@@ -6,6 +6,10 @@ import { NextResponse } from "next/server";
 // TMDbのベースURL
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 
+// 注意: レート制限対策は将来の拡張用に app/utils/apiRateLimiter.ts に実装済み
+// 現在は通常のfetchを使用（個人利用〜中規模利用では問題なし）
+// ユーザー数が100人以上になった場合、rateLimitedFetch に切り替えを検討
+
 // TMDbのレスポンス型（必要な範囲のみ定義）
 type TMDbMovie = {
   id: number;
@@ -104,13 +108,26 @@ export async function GET(request: Request) {
     const randomPage = Math.floor(Math.random() * 10) + 1;
     url.searchParams.set("page", String(randomPage));
 
+    // TMDb APIを直接呼び出し（レート制限はTMDb側で管理）
     const res = await fetch(url.toString(), {
       // サーバー側からTMDbを叩くので再検証は不要
       cache: "no-store",
     });
 
     if (!res.ok) {
-      // TMDb側のエラーをラップして返す
+      // 429エラー（Too Many Requests）の場合、特別な処理
+      if (res.status === 429) {
+        return NextResponse.json(
+          {
+            error: "API rate limit exceeded. Please try again in a few seconds.",
+            status: 429,
+            retryAfter: 10, // 10秒後にリトライを推奨
+          },
+          { status: 429 },
+        );
+      }
+      
+      // その他のTMDb側のエラーをラップして返す
       const text = await res.text().catch(() => "");
       return NextResponse.json(
         {
@@ -119,7 +136,7 @@ export async function GET(request: Request) {
           status: res.status,
           body: text || undefined,
         },
-        { status: 500 },
+        { status: res.status >= 500 ? 500 : res.status },
       );
     }
 

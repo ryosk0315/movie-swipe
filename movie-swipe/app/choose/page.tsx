@@ -6,6 +6,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { isMobile } from "../utils/deviceDetection";
+import { getProviderWatchUrl } from "../utils/providerUrls";
 
 // 「見たい山」の映画型
 type CandidateMovie = {
@@ -68,6 +70,14 @@ export default function ChoosePage() {
     setShowModal(true);
   };
 
+  // モーダルが開いたときに配信情報を取得
+  useEffect(() => {
+    if (showModal && selectedMovie) {
+      setProviders(null);
+      fetchProviders(selectedMovie.id);
+    }
+  }, [showModal, selectedMovie?.id]);
+
   // 選んだ映画をlocalStorageに保存
   const saveSelectedMovie = (
     movie: CandidateMovie,
@@ -89,8 +99,8 @@ export default function ChoosePage() {
     }
   };
 
-  // 配信サービス情報を取得
-  const fetchProviders = async (movieId: number) => {
+  // 配信サービス情報を取得（返り値で判定に使う）
+  const fetchProviders = async (movieId: number): Promise<{ link: string | null; flatrate: { id?: number; provider_id?: number; name?: string; provider_name?: string; logo_path?: string }[] } | null> => {
     setLoadingProviders(true);
     try {
       const res = await fetch(`/api/movies/${movieId}/providers`, {
@@ -99,26 +109,23 @@ export default function ChoosePage() {
       if (res.ok) {
         const data = await res.json();
         setProviders(data);
+        return data;
       }
+      return null;
     } catch (error) {
       console.error("Failed to fetch providers:", error);
+      return null;
     } finally {
       setLoadingProviders(false);
     }
   };
 
-  // 「今すぐ見る」を選択
-  const handleWatchNow = async () => {
+  // 「今すぐ見るに追加」（配信なしのときのみ表示。モーダル開時に既に配信取得済み）
+  const handleWatchNow = () => {
     if (selectedMovie) {
-      // 配信サービス情報を取得
-      await fetchProviders(selectedMovie.id);
-      // 配信サービスがある場合は、そのまま表示（モーダルは開いたまま）
-      // 配信サービスがない場合は、保存してメイン画面に戻る
-      if (!providers || (!providers.flatrate || providers.flatrate.length === 0)) {
-        saveSelectedMovie(selectedMovie, "watch_now");
-        localStorage.removeItem("candidates");
-        window.location.href = "/";
-      }
+      saveSelectedMovie(selectedMovie, "watch_now");
+      localStorage.removeItem("candidates");
+      window.location.href = "/";
     }
   };
 
@@ -287,52 +294,70 @@ export default function ChoosePage() {
               <h3 className="mb-2 text-xl font-semibold">
                 {selectedMovie.title} を選びました
               </h3>
-              <p className="text-sm text-zinc-400">どうしますか？</p>
+              {loadingProviders ? (
+                <p className="text-sm text-zinc-400">配信サービスを確認中…</p>
+              ) : null}
             </div>
 
-            {/* 配信サービスリンク */}
+            {/* 配信: 読み込み中 */}
             {loadingProviders ? (
-              <div className="mb-4 flex items-center justify-center py-4">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-600 border-t-transparent" />
+              <div className="mb-4 flex justify-center py-4">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-transparent" />
               </div>
-            ) : providers && providers.flatrate && providers.flatrate.length > 0 ? (
+            ) : providers?.flatrate?.length ? (
+              /* 配信あり */
               <div className="mb-4 space-y-2">
-                <p className="text-sm font-semibold text-zinc-300">配信サービス</p>
+                <p className="text-sm font-semibold text-zinc-300">今すぐ見る（配信サービスへ）</p>
                 <div className="flex flex-wrap gap-2">
-                  {providers.flatrate.map((provider: any) => (
-                    <a
-                      key={provider.provider_id}
-                      href={providers.link || "#"}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => {
-                        saveSelectedMovie(selectedMovie, "watch_now");
-                        localStorage.removeItem("candidates");
-                      }}
-                      className="flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 text-sm text-white transition-colors hover:bg-zinc-700"
-                    >
-                      {provider.logo_path && (
-                        <img
-                          src={`https://image.tmdb.org/t/p/w92${provider.logo_path}`}
-                          alt={provider.provider_name}
-                          className="h-6 w-6 rounded"
-                        />
-                      )}
-                      <span>{provider.provider_name}で見る</span>
-                    </a>
-                  ))}
+                  {providers.flatrate.map((provider: { id?: number; provider_id?: number; name?: string; provider_name?: string; logo_path?: string }) => {
+                    const pid = provider.id ?? provider.provider_id ?? 0;
+                    const name = provider.name ?? provider.provider_name ?? "";
+                    const watchUrl = getProviderWatchUrl(pid, providers.link ?? null, isMobile());
+                    return (
+                      <a
+                        key={pid}
+                        href={watchUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => {
+                          saveSelectedMovie(selectedMovie, "watch_now");
+                          localStorage.removeItem("candidates");
+                        }}
+                        className="flex items-center gap-2 rounded-lg bg-red-600/90 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-500"
+                      >
+                        {provider.logo_path && (
+                          <img
+                            src={`https://image.tmdb.org/t/p/w92${provider.logo_path}`}
+                            alt={name}
+                            className="h-6 w-6 rounded"
+                          />
+                        )}
+                        <span>{name}で見る</span>
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
-            ) : null}
+            ) : (
+              /* 配信なし */
+              <div className="mb-4 rounded-lg border border-amber-600/50 bg-amber-950/30 px-4 py-3">
+                <p className="text-sm font-medium text-amber-200">
+                  この映画は現在配信がありません
+                </p>
+                <p className="mt-1 text-xs text-zinc-400">
+                  それでもリストに追加するか、選ばないで閉じることができます。
+                </p>
+              </div>
+            )}
 
-            <div className="flex flex-col gap-3">
-              {(!providers || !providers.flatrate || providers.flatrate.length === 0) && (
+            <div className="flex flex-col gap-2">
+              {!loadingProviders && !providers?.flatrate?.length && (
                 <button
                   type="button"
                   onClick={handleWatchNow}
                   className="rounded-lg bg-red-600 px-6 py-3 text-base font-medium text-white transition-colors hover:bg-red-500"
                 >
-                  今すぐ見る
+                  今すぐ見るに追加
                 </button>
               )}
               <button
@@ -340,7 +365,14 @@ export default function ChoosePage() {
                 onClick={handleWatchLater}
                 className="rounded-lg border border-zinc-700 bg-zinc-800 px-6 py-3 text-base font-medium text-white transition-colors hover:border-zinc-600 hover:bg-zinc-700"
               >
-                後で見る
+                後で見るに追加
+              </button>
+              <button
+                type="button"
+                onClick={handleModalClose}
+                className="rounded-lg border border-zinc-600 px-6 py-2.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+              >
+                選ばない（閉じる）
               </button>
             </div>
           </div>
