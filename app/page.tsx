@@ -47,10 +47,19 @@ type FavoriteMovie = Movie & {
   addedAt: number; // タイムスタンプ
 };
 
+// 「見たい」候補の同期用（最終スワイプ時の localStorage 保存で state の遅延を避ける）
+function mergeRightCandidate(
+  base: CandidateMovie[],
+  movie: Movie,
+): CandidateMovie[] {
+  if (base.some((m) => m.id === movie.id)) return base;
+  return [...base, { ...movie, addedAt: Date.now() }];
+}
+
 // スワイプ判定に使うしきい値（px）
 const SWIPE_THRESHOLD = 100;
-// 選択タイムに移行するスワイプ数
-const MAX_SWIPES = 20;
+// 選択タイムに移行するスワイプ数（5本で強制決定）
+const MAX_SWIPES = 5;
 
 export default function Home() {
   // 現在表示している映画
@@ -83,6 +92,13 @@ export default function Home() {
   // スワイプカウントと「見たい山」の管理
   const [swipeCount, setSwipeCount] = useState<number>(0);
   const [candidates, setCandidates] = useState<CandidateMovie[]>([]);
+  const candidatesRef = useRef<CandidateMovie[]>([]);
+  // 今ラウンドでスワイプした5本（「見たい」0本時のランダム決定に使う）
+  const roundSwipedRef = useRef<Movie[]>([]);
+
+  useEffect(() => {
+    candidatesRef.current = candidates;
+  }, [candidates]);
 
   // 映画詳細モーダルの状態
   const [showDetailsModal, setShowDetailsModal] = useState<boolean>(false);
@@ -423,8 +439,8 @@ export default function Home() {
     localStorage.setItem("swipeStats", JSON.stringify(stats));
   }, []);
 
-  // 映画キューに複数枚（5〜10枚）をまとめて取得して追加
-  const loadMoviesToQueue = useCallback(async (count: number = 8) => {
+  // 映画キューに複数枚をまとめて取得して追加
+  const loadMoviesToQueue = useCallback(async (count: number = 5) => {
     // SSR時は何もしない
     if (typeof window === "undefined") return;
     
@@ -528,16 +544,17 @@ export default function Home() {
         saveSwipeStat(movie.id, "down"); // 統計データを保存
         
         setTimeout(() => {
-          // スワイプカウントをインクリメント
+          if (movie) {
+            roundSwipedRef.current = [...roundSwipedRef.current, movie];
+          }
           const newCount = swipeCount + 1;
           setSwipeCount(newCount);
           
-          // 20本スワイプしたら選択タイムに移行
           if (newCount >= MAX_SWIPES) {
-            localStorage.setItem("candidates", JSON.stringify(candidates));
+            localStorage.setItem("candidates", JSON.stringify(candidatesRef.current));
+            localStorage.setItem("swipeSessionMovies", JSON.stringify(roundSwipedRef.current));
             window.location.href = "/choose";
           } else {
-            // 次の映画を即座に表示（キューから取得）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
@@ -554,16 +571,17 @@ export default function Home() {
         saveSwipeStat(movie.id, "up"); // 統計データを保存
         
         setTimeout(() => {
-          // スワイプカウントをインクリメント
+          if (movie) {
+            roundSwipedRef.current = [...roundSwipedRef.current, movie];
+          }
           const newCount = swipeCount + 1;
           setSwipeCount(newCount);
           
-          // 20本スワイプしたら選択タイムに移行
           if (newCount >= MAX_SWIPES) {
-            localStorage.setItem("candidates", JSON.stringify(candidates));
+            localStorage.setItem("candidates", JSON.stringify(candidatesRef.current));
+            localStorage.setItem("swipeSessionMovies", JSON.stringify(roundSwipedRef.current));
             window.location.href = "/choose";
           } else {
-            // 次の映画を即座に表示（キューから取得）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
@@ -587,24 +605,27 @@ export default function Home() {
         saveSwipeStat(movie.id, "right"); // 統計データを保存
         
         setTimeout(() => {
-          // スワイプカウントをインクリメント
+          if (movie) {
+            roundSwipedRef.current = [...roundSwipedRef.current, movie];
+          }
           const newCount = swipeCount + 1;
           setSwipeCount(newCount);
           
-          // 20本スワイプしたら選択タイムに移行
+          const finalCandidates = movie
+            ? mergeRightCandidate(candidatesRef.current, movie)
+            : candidatesRef.current;
           if (newCount >= MAX_SWIPES) {
-            // localStorageに保存してから遷移
-            localStorage.setItem("candidates", JSON.stringify([...candidates, { ...movie, addedAt: Date.now() }]));
+            localStorage.setItem("candidates", JSON.stringify(finalCandidates));
+            localStorage.setItem("swipeSessionMovies", JSON.stringify(roundSwipedRef.current));
             window.location.href = "/choose";
           } else {
-            // 次の映画を即座に表示（キューから取得）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
             setCurrentY(0);
             fetchMovie();
           }
-        }, 100); // アニメーション時間を250ms → 100msに短縮
+        }, 100);
       } else {
         // 左スワイプ = スキップ
         setIsDragging(false);
@@ -615,24 +636,24 @@ export default function Home() {
         }
         
         setTimeout(() => {
-          // スワイプカウントをインクリメント
+          if (movie) {
+            roundSwipedRef.current = [...roundSwipedRef.current, movie];
+          }
           const newCount = swipeCount + 1;
           setSwipeCount(newCount);
           
-          // 20本スワイプしたら選択タイムに移行
           if (newCount >= MAX_SWIPES) {
-            // localStorageに保存してから遷移
-            localStorage.setItem("candidates", JSON.stringify(candidates));
+            localStorage.setItem("candidates", JSON.stringify(candidatesRef.current));
+            localStorage.setItem("swipeSessionMovies", JSON.stringify(roundSwipedRef.current));
             window.location.href = "/choose";
           } else {
-            // 次の映画を即座に表示（キューから取得）
             setStartX(null);
             setStartY(null);
             setCurrentX(0);
             setCurrentY(0);
             fetchMovie();
           }
-        }, 100); // アニメーション時間を250ms → 100msに短縮
+        }, 100);
       }
     } else {
       // スワイプが足りない場合は元に戻す
@@ -718,9 +739,10 @@ export default function Home() {
     // キューをリセット
     setMovieQueue([]);
     setSwipeCount(0);
+    roundSwipedRef.current = [];
     
-    // 初回に8枚まとめて取得してキューに積む
-    loadMoviesToQueue(8);
+    // 初回に5枚まとめて取得してキューに積む（1ラウンド分）
+    loadMoviesToQueue(5);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
@@ -739,8 +761,8 @@ export default function Home() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     
-    if (movieQueue.length <= 5 && !isLoadingQueue && movieQueue.length > 0) {
-      loadMoviesToQueue(8);
+    if (movieQueue.length <= 2 && !isLoadingQueue && movieQueue.length > 0) {
+      loadMoviesToQueue(5);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [movieQueue.length, isLoadingQueue]);
@@ -825,13 +847,6 @@ export default function Home() {
                     <span>📊 統計</span>
                   </a>
                   <a
-                    href="/vote"
-                    onClick={() => setShowMoreMenu(false)}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-zinc-300 hover:bg-zinc-800"
-                  >
-                    <span>👥 投票モード</span>
-                  </a>
-                  <a
                     href="/favorites"
                     onClick={() => setShowMoreMenu(false)}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-zinc-300 hover:bg-zinc-800"
@@ -850,7 +865,7 @@ export default function Home() {
             スワイプして映画を探す
           </h1>
           <p className="text-center text-sm text-zinc-400 sm:text-base">
-            カードを左右にドラッグして新しい映画を表示します。
+            5本スワイプすると、今日観る1本に決まります（カードを左右にドラッグ）。
           </p>
 
           {/* 映画カード */}
@@ -895,64 +910,50 @@ export default function Home() {
 
               {/* 映画情報表示 */}
               {!loading && !error && movie && (
-                <div className="flex h-full flex-col overflow-hidden">
-                  {/* ポスター部分 */}
-                  <div className="relative h-64 w-full overflow-hidden">
+                <div className="flex h-full flex-col overflow-hidden rounded-3xl">
+                  {/* ポスター＋タイトルのみ（詳細はタップでモーダル） */}
+                  <div className="relative min-h-[280px] flex-1 overflow-hidden">
                     {movie.poster_path ? (
-                      // 画像は通常のimgでシンプルに表示（TMDbの画像ベースURLを使用）
                       <img
                         src={`https://image.tmdb.org/t/p/w500${movie.poster_path}`}
                         alt={movie.title}
-                        className="h-full w-full object-cover"
+                        className="h-full min-h-[280px] w-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-zinc-800 text-sm text-zinc-400">
+                      <div className="flex h-full min-h-[280px] w-full items-center justify-center bg-zinc-800 text-sm text-zinc-400">
                         No Image
                       </div>
                     )}
-
-                    {/* 上部のグラデーション */}
-                    <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/70 via-black/20 to-transparent" />
-                    {/* 下部のグラデーション */}
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-zinc-900 via-zinc-900/40 to-transparent" />
-                  </div>
-
-                  {/* テキスト情報 */}
-                  <div className="flex flex-1 flex-col gap-3 px-4 py-3">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <h2 className="line-clamp-2 text-lg font-semibold sm:text-xl">
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent px-4 pb-4 pt-20">
+                      <h2 className="line-clamp-3 text-xl font-semibold leading-snug drop-shadow-md sm:text-2xl">
                         {movie.title}
                       </h2>
-                      <span className="shrink-0 text-sm font-medium text-yellow-400">
-                        ★ {movie.rating.toFixed(1)}
-                      </span>
+                      <p className="mt-1.5 text-[11px] text-zinc-400 sm:text-xs">
+                        タップで詳細（あらすじ・評価・配信など）
+                      </p>
                     </div>
+                  </div>
 
-                    <p className="line-clamp-3 text-xs text-zinc-400 sm:text-sm">
-                      {movie.overview || "あらすじ情報はありません。"}
-                    </p>
-
-                    <div className="mt-auto space-y-2 pt-1">
-                      <div className="flex items-center justify-between text-xs text-zinc-500">
-                        <span>左：スキップ / 右：選ぶ / 上：お気に入り / 下：見たことある</span>
-                        <button
-                          type="button"
-                          onClick={() => fetchMovie()}
-                          className="rounded-full border border-zinc-700 px-3 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
-                        >
-                          別の映画を見る
-                        </button>
-                      </div>
-                      <div className="text-center">
-                        <span className="text-xs font-medium text-zinc-400">
-                          {swipeCount}/{MAX_SWIPES}本 スワイプ済み
+                  <div className="shrink-0 space-y-2 border-t border-zinc-800/90 px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-500">
+                      <span>左：スキップ / 右：見たい / 上：お気に入り / 下：見たことある</span>
+                      <button
+                        type="button"
+                        onClick={() => fetchMovie()}
+                        className="rounded-full border border-zinc-700 px-3 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                      >
+                        別の映画を見る
+                      </button>
+                    </div>
+                    <div className="text-center">
+                      <span className="text-xs font-medium text-zinc-400">
+                        {swipeCount}/{MAX_SWIPES}本 スワイプ済み
+                      </span>
+                      {candidates.length > 0 && (
+                        <span className="ml-2 text-xs text-red-400">
+                          （{candidates.length}本が見たい）
                         </span>
-                        {candidates.length > 0 && (
-                          <span className="ml-2 text-xs text-red-400">
-                            （{candidates.length}本を選択中）
-                          </span>
-                        )}
-                      </div>
+                      )}
                     </div>
                   </div>
                 </div>
