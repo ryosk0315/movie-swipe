@@ -81,6 +81,7 @@ export async function GET(request: Request) {
     url.searchParams.set("language", "ja-JP");
     url.searchParams.set("sort_by", "popularity.desc"); // 人気順
     url.searchParams.set("include_adult", "false"); // アダルトコンテンツを除外
+    url.searchParams.set("vote_count.gte", "50"); // マイナー作品を除外（有名作ほど日本語翻訳が整っている）
 
     // フィルター条件を追加
     if (genres) {
@@ -166,9 +167,9 @@ export async function GET(request: Request) {
       if (translationsRes.ok) {
         const translationsData = (await translationsRes.json()) as TMDbTranslationsResponse;
         
-        // 日本語（ja または ja-JP）の翻訳を探す
+        // 日本語翻訳を探す（iso_639_1=ja かつタイトルが実際に存在するものを優先）
         const japaneseTranslation = translationsData.translations.find(
-          (t) => t.iso_639_1 === "ja" || t.iso_3166_1 === "JP"
+          (t) => t.iso_639_1 === "ja" && t.data?.title
         );
 
         if (japaneseTranslation && japaneseTranslation.data) {

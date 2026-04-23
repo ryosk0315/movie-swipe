@@ -89,6 +89,21 @@ export default function Home() {
   // ヘッダー右上の「その他メニュー」の表示状態
   const [showMoreMenu, setShowMoreMenu] = useState<boolean>(false);
 
+  // オンボーディング（初回のみ表示）
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!localStorage.getItem("onboardingDone")) {
+      setShowOnboarding(true);
+    }
+  }, []);
+
+  const handleOnboardingClose = () => {
+    localStorage.setItem("onboardingDone", "1");
+    setShowOnboarding(false);
+  };
+
   // スワイプカウントと「見たい山」の管理
   const [swipeCount, setSwipeCount] = useState<number>(0);
   const [candidates, setCandidates] = useState<CandidateMovie[]>([]);
@@ -872,6 +887,31 @@ export default function Home() {
           <div className="relative mt-4 h-[430px] w-full max-w-sm">
             {/* 背景のぼかしカード（奥行き表現） */}
             <div className="absolute inset-x-4 top-6 h-[380px] rounded-3xl bg-zinc-800/60 blur-sm" />
+
+            {/* オンボーディングオーバーレイ（初回のみ） */}
+            {showOnboarding && (
+              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center rounded-3xl bg-black/90 px-6 text-center backdrop-blur-sm">
+                <p className="mb-5 text-xl font-bold leading-snug text-white">
+                  今夜の1本を<br />20秒で決めよう
+                </p>
+                <ul className="mb-6 space-y-2 text-sm text-zinc-300">
+                  <li>右スワイプ → 見たい</li>
+                  <li>左スワイプ → スキップ</li>
+                  <li>上スワイプ → お気に入り</li>
+                  <li>下スワイプ → 見たことある</li>
+                </ul>
+                <p className="mb-6 text-sm font-medium text-zinc-400">
+                  5本スワイプすると映画が決まります
+                </p>
+                <button
+                  type="button"
+                  onClick={handleOnboardingClose}
+                  className="rounded-xl bg-red-600 px-8 py-3 text-base font-semibold text-white transition-colors hover:bg-red-500"
+                >
+                  はじめる
+                </button>
+              </div>
+            )}
 
             {/* メインカード */}
             <div

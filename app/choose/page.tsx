@@ -40,6 +40,7 @@ export default function ChoosePage() {
   const [tournamentPool, setTournamentPool] = useState<CandidateMovie[]>([]);
   const [selectedMovie, setSelectedMovie] = useState<CandidateMovie | null>(null);
   const [showModal, setShowModal] = useState<boolean>(false);
+  const [isRandomPick, setIsRandomPick] = useState<boolean>(false);
   const [providers, setProviders] = useState<any>(null);
   const [loadingProviders, setLoadingProviders] = useState<boolean>(false);
   const [phase, setPhase] = useState<"loading" | "tournament" | "empty">("loading");
@@ -67,6 +68,7 @@ export default function ChoosePage() {
     } else if (pool.length > 0) {
       const pick = pool[Math.floor(Math.random() * pool.length)];
       setSelectedMovie(pick);
+      setIsRandomPick(true);
       setShowModal(true);
       setPhase("tournament");
     } else {
@@ -298,9 +300,20 @@ export default function ChoosePage() {
             </button>
 
             <div className="mb-4 text-center">
-              <h3 className="mb-2 text-xl font-semibold">
-                {selectedMovie.title} を選びました
-              </h3>
+              {isRandomPick ? (
+                <>
+                  <p className="mb-1 text-sm font-medium text-zinc-400">
+                    全部スキップしたので、アプリがランダムで決めました！
+                  </p>
+                  <h3 className="mb-2 text-xl font-semibold">
+                    今夜の1本: {selectedMovie.title}
+                  </h3>
+                </>
+              ) : (
+                <h3 className="mb-2 text-xl font-semibold">
+                  {selectedMovie.title} を選びました
+                </h3>
+              )}
               {loadingProviders ? (
                 <p className="text-sm text-zinc-400">配信サービスを確認中…</p>
               ) : null}
@@ -387,6 +400,15 @@ export default function ChoosePage() {
               >
                 選ばない（閉じる）
               </button>
+              {isRandomPick && (
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="rounded-lg border border-zinc-700 px-6 py-2.5 text-sm text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-400"
+                >
+                  もう一度やり直す
+                </button>
+              )}
             </div>
           </div>
         </div>
