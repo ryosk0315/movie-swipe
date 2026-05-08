@@ -813,8 +813,8 @@ export default function Home() {
         <header className="absolute left-4 right-4 top-4 z-20 flex items-center justify-between sm:left-10 sm:right-10 sm:top-8">
           <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
             <div className="h-7 w-7 rounded-sm bg-red-600 sm:h-8 sm:w-8" />
-            <span className="text-lg font-semibold tracking-[0.25em] text-red-600 sm:text-xl">
-              MOVIE SWIPE
+            <span className="text-lg font-semibold tracking-[0.15em] text-red-600 sm:text-xl">
+              コレミル
             </span>
           </Link>
           <div className="relative flex items-center gap-1 sm:gap-2">
@@ -877,10 +877,10 @@ export default function Home() {
         {/* 中央のカードエリア */}
         <section className="flex w-full max-w-md flex-col items-center gap-6">
           <h1 className="text-center text-2xl font-semibold tracking-tight sm:text-3xl">
-            スワイプして映画を探す
+            20秒で今夜の1本を決める
           </h1>
           <p className="text-center text-sm text-zinc-400 sm:text-base">
-            5本スワイプすると、今日観る1本に決まります（カードを左右にドラッグ）。
+            5本スワイプすると、今夜観る映画が決まります。
           </p>
 
           {/* 映画カード */}
@@ -948,6 +948,44 @@ export default function Home() {
                 </div>
               )}
 
+              {/* スワイプ中オーバーレイラベル */}
+              {!loading && !error && movie && isDragging && (
+                <>
+                  {/* 右スワイプ → 見たい */}
+                  {currentX > 40 && (
+                    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-start rounded-3xl pl-6">
+                      <span className="rotate-[-20deg] rounded-xl border-4 border-green-400 px-4 py-1.5 text-2xl font-extrabold uppercase tracking-widest text-green-400 opacity-90 drop-shadow-lg">
+                        見たい
+                      </span>
+                    </div>
+                  )}
+                  {/* 左スワイプ → スキップ */}
+                  {currentX < -40 && (
+                    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-end rounded-3xl pr-6">
+                      <span className="rotate-[20deg] rounded-xl border-4 border-red-400 px-4 py-1.5 text-2xl font-extrabold uppercase tracking-widest text-red-400 opacity-90 drop-shadow-lg">
+                        スキップ
+                      </span>
+                    </div>
+                  )}
+                  {/* 上スワイプ → お気に入り */}
+                  {currentY < -40 && Math.abs(currentY) > Math.abs(currentX) && (
+                    <div className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center rounded-3xl pt-8">
+                      <span className="rounded-xl border-4 border-yellow-400 px-4 py-1.5 text-2xl font-extrabold tracking-widest text-yellow-400 opacity-90 drop-shadow-lg">
+                        ★ お気に入り
+                      </span>
+                    </div>
+                  )}
+                  {/* 下スワイプ → 見たことある */}
+                  {currentY > 40 && Math.abs(currentY) > Math.abs(currentX) && (
+                    <div className="pointer-events-none absolute inset-0 z-20 flex items-end justify-center rounded-3xl pb-8">
+                      <span className="rounded-xl border-4 border-zinc-400 px-4 py-1.5 text-xl font-extrabold tracking-widest text-zinc-400 opacity-90 drop-shadow-lg">
+                        見たことある
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+
               {/* 映画情報表示 */}
               {!loading && !error && movie && (
                 <div className="flex h-full flex-col overflow-hidden rounded-3xl">
@@ -974,24 +1012,34 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div className="shrink-0 space-y-2 border-t border-zinc-800/90 px-4 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-500">
-                      <span>左：スキップ / 右：見たい / 上：お気に入り / 下：見たことある</span>
-                      <button
-                        type="button"
-                        onClick={() => fetchMovie()}
-                        className="rounded-full border border-zinc-700 px-3 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
-                      >
-                        別の映画を見る
-                      </button>
-                    </div>
-                    <div className="text-center">
-                      <span className="text-xs font-medium text-zinc-400">
-                        {swipeCount}/{MAX_SWIPES}本 スワイプ済み
+                  <div className="shrink-0 border-t border-zinc-800/90 px-4 py-3 space-y-2.5">
+                    {/* スワイプガイド（アイコン＋色分け） */}
+                    <div className="flex items-center justify-center gap-3 text-[11px] sm:text-xs">
+                      <span className="flex items-center gap-1 text-red-400">
+                        <span>←</span><span>スキップ</span>
                       </span>
+                      <span className="text-zinc-700">|</span>
+                      <span className="flex items-center gap-1 text-green-400">
+                        <span>見たい</span><span>→</span>
+                      </span>
+                      <span className="text-zinc-700">|</span>
+                      <span className="flex items-center gap-1 text-yellow-400">
+                        <span>↑</span><span>お気に入り</span>
+                      </span>
+                    </div>
+                    {/* プログレスドット */}
+                    <div className="flex items-center justify-center gap-2">
+                      {Array.from({ length: MAX_SWIPES }).map((_, i) => (
+                        <div
+                          key={i}
+                          className={`h-2 w-2 rounded-full transition-colors ${
+                            i < swipeCount ? "bg-red-500" : "bg-zinc-700"
+                          }`}
+                        />
+                      ))}
                       {candidates.length > 0 && (
-                        <span className="ml-2 text-xs text-red-400">
-                          （{candidates.length}本が見たい）
+                        <span className="ml-1 text-[11px] text-red-400">
+                          {candidates.length}本 見たい
                         </span>
                       )}
                     </div>

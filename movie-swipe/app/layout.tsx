@@ -22,6 +22,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://movie-swipe-delta.vercel.app"),
   title: "コレミル — 20秒で今夜の1本が決まる",
   description:
     "映画を5回スワイプするだけで、今夜観る1本が20秒で決まる。迷わない、悩まない、コレ見る。",
@@ -34,12 +35,22 @@ export const metadata: Metadata = {
     type: "website",
     locale: "ja_JP",
     siteName: "コレミル",
+    url: "https://movie-swipe-delta.vercel.app",
+    images: [
+      {
+        url: "https://movie-swipe-delta.vercel.app/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: "コレミル — 20秒で今夜の1本が決まる",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "コレミル — 20秒で今夜の1本が決まる",
     description:
       "5回スワイプするだけで今夜観る映画が決まる。迷わない映画決断マシン。",
+    images: ["https://movie-swipe-delta.vercel.app/opengraph-image"],
   },
 };
 

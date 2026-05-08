@@ -175,8 +175,8 @@ export default function ChoosePage() {
         <header className="mb-8 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
             <div className="h-7 w-7 rounded-sm bg-red-600 sm:h-8 sm:w-8" />
-            <span className="text-lg font-semibold tracking-[0.25em] text-red-600 sm:text-xl">
-              MOVIE SWIPE
+            <span className="text-lg font-semibold tracking-[0.15em] text-red-600 sm:text-xl">
+              コレミル
             </span>
           </Link>
           <button
