@@ -120,6 +120,8 @@ export default function Home() {
   const [movieDetails, setMovieDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState<boolean>(false);
   const [isDragged, setIsDragged] = useState<boolean>(false);
+  // 詳細モーダルを開いた時点の映画を別途保持（movie state が次カードに変わっても表示が崩れないようにする）
+  const [detailTargetMovie, setDetailTargetMovie] = useState<Movie | null>(null);
 
   // 映画キュー（5〜10枚を保持してスワイプ時のラグを削減）
   const [movieQueue, setMovieQueue] = useState<Movie[]>([]);
@@ -306,9 +308,15 @@ export default function Home() {
     }
   };
 
-  // 画面外でマウスを離したときのためにleaveも同様に扱う
+  // 画面外でマウスを離したときはドラッグ中のみスワイプ判定
   const handleMouseLeave = () => {
-    if (!isDragging) return;
+    if (!isDragging || !isDragged) {
+      // ドラッグ操作が実際に行われていない場合はリセットのみ
+      setIsDragging(false);
+      setCurrentX(0);
+      setCurrentY(0);
+      return;
+    }
     finishSwipe();
   };
 
@@ -343,7 +351,15 @@ export default function Home() {
   // タッチ終了
   const handleTouchEnd = () => {
     if (!isDragging) return;
-    finishSwipe();
+    // ドラッグ量が小さければタップと判定してカード詳細を開く
+    if (!isDragged && movie) {
+      handleCardClick();
+      setIsDragging(false);
+      setCurrentX(0);
+      setCurrentY(0);
+    } else {
+      finishSwipe();
+    }
   };
 
   // 選んだ映画をlocalStorageに保存する関数
@@ -375,11 +391,14 @@ export default function Home() {
   const handleCardClick = async () => {
     if (!movie) return;
     
+    // クリック時点の映画を保持（非同期中に movie state が変わっても詳細が正しく表示される）
+    const targetMovie = movie;
+    setDetailTargetMovie(targetMovie);
     setLoadingDetails(true);
     setShowDetailsModal(true);
     
     try {
-      const res = await fetch(`/api/movies/${movie.id}/details`, {
+      const res = await fetch(`/api/movies/${targetMovie.id}/details`, {
         cache: "no-store",
       });
       
@@ -1170,7 +1189,7 @@ export default function Home() {
       )}
 
       {/* 映画詳細モーダル */}
-      {showDetailsModal && movie && (
+      {showDetailsModal && detailTargetMovie && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 overflow-y-auto"
           onClick={() => setShowDetailsModal(false)}
@@ -1276,8 +1295,9 @@ export default function Home() {
                 )}
               </div>
             ) : (
-              <div className="py-12 text-center text-zinc-400">
-                詳細情報の取得に失敗しました。
+              <div className="py-8 text-center">
+                <p className="mb-2 text-base font-semibold text-white">{detailTargetMovie?.title}</p>
+                <p className="text-sm text-zinc-400">詳細情報の取得に失敗しました。</p>
               </div>
             )}
           </div>
